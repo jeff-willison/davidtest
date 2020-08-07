@@ -16,8 +16,10 @@
 !     integer kinds
 !     -------------
 !
-      integer, parameter :: kind_ib = selected_int_kind(13)  ! 8 byte integer
-      integer, parameter :: kind_im = selected_int_kind(6)   ! 4 byte integer
+!     integer, parameter :: kind_ib = selected_int_kind(13)  ! 8 byte integer
+!     integer, parameter :: kind_im = selected_int_kind(6)   ! 4 byte integer
+      integer, parameter :: kind_ib = kind(1)            
+      integer, parameter :: kind_im = kind(1)            
       integer, parameter :: kind_in = kind(1)                ! native integer
 
 !
@@ -2085,8 +2087,8 @@ contains
 !------------------------------------------------------------------
 
       subroutine mcica_subcol_lw(iplon, ncol, nlay, icld, permuteseed, irng, play, &
-                       cldfrac, ciwp, clwp, rei, rel, tauc, cldfmcl, &
-                       ciwpmcl, clwpmcl, reicmcl, relqmcl, taucmcl)
+                       cldfrac, ciwp, clwp, cswp, rei, rel, res, tauc, cldfmcl, &
+                       ciwpmcl, clwpmcl, cswpmcl, reicmcl, relqmcl, resnmcl, taucmcl)
 
 ! ----- Input -----
 ! Control
@@ -2119,9 +2121,13 @@ contains
                                                       !    Dimensions: (ncol,nlay)
       real(kind=rb), intent(in) :: clwp(:,:)          ! in-cloud liquid water path
                                                       !    Dimensions: (ncol,nlay)
+      real(kind=rb), intent(in) :: cswp(:,:)          ! in-cloud snow path
+                                                      !    Dimensions: (ncol,nlay)
       real(kind=rb), intent(in) :: rei(:,:)           ! cloud ice particle size
                                                       !    Dimensions: (ncol,nlay)
       real(kind=rb), intent(in) :: rel(:,:)           ! cloud liquid particle size
+                                                      !    Dimensions: (ncol,nlay)
+      real(kind=rb), intent(in) :: res(:,:)           ! snow particle size
                                                       !    Dimensions: (ncol,nlay)
 
 ! ----- Output -----
@@ -2132,9 +2138,13 @@ contains
                                                       !    Dimensions: (ngptlw,ncol,nlay)
       real(kind=rb), intent(out) :: clwpmcl(:,:,:)    ! in-cloud liquid water path [mcica]
                                                       !    Dimensions: (ngptlw,ncol,nlay)
+      real(kind=rb), intent(out) :: cswpmcl(:,:,:)    ! in-cloud snow path [mcica]
+                                                      !    Dimensions: (ngptlw,ncol,nlay)
       real(kind=rb), intent(out) :: relqmcl(:,:)      ! liquid particle size (microns)
                                                       !    Dimensions: (ncol,nlay)
       real(kind=rb), intent(out) :: reicmcl(:,:)      ! ice partcle size (microns)
+                                                      !    Dimensions: (ncol,nlay)
+      real(kind=rb), intent(out) :: resnmcl(:,:)      ! snow partcle size (microns)
                                                       !    Dimensions: (ncol,nlay)
       real(kind=rb), intent(out) :: taucmcl(:,:,:)    ! in-cloud optical depth [mcica]
                                                       !    Dimensions: (ngptlw,ncol,nlay)
@@ -2169,6 +2179,7 @@ contains
 
       reicmcl(:ncol,:nlay) = rei(:ncol,:nlay)
       relqmcl(:ncol,:nlay) = rel(:ncol,:nlay)
+      resnmcl(:ncol,:nlay) = res(:ncol,:nlay)
       pmid(:ncol,:nlay) = play(:ncol,:nlay)*1.e2_rb
 
 ! Convert input ice and liquid cloud water paths to specific humidity ice and liquid components 
@@ -2187,15 +2198,15 @@ contains
 !      enddo
 
 !  Generate the stochastic subcolumns of cloud optical properties for the longwave;
-      call generate_stochastic_clouds (ncol, nlay, nsubclw, icld, irng, pmid, cldfrac, clwp, ciwp, tauc, &
-                               cldfmcl, clwpmcl, ciwpmcl, taucmcl, permuteseed)
+      call generate_stochastic_clouds (ncol, nlay, nsubclw, icld, irng, pmid, cldfrac, clwp, ciwp, cswp, tauc, &
+                               cldfmcl, clwpmcl, ciwpmcl, cswpmcl, taucmcl, permuteseed)
 
       end subroutine mcica_subcol_lw
 
 
 !-------------------------------------------------------------------------------------------------
-      subroutine generate_stochastic_clouds(ncol, nlay, nsubcol, icld, irng, pmid, cld, clwp, ciwp, tauc, &
-                                   cld_stoch, clwp_stoch, ciwp_stoch, tauc_stoch, changeSeed) 
+      subroutine generate_stochastic_clouds(ncol, nlay, nsubcol, icld, irng, pmid, cld, clwp, ciwp, cswp, tauc, &
+                                   cld_stoch, clwp_stoch, ciwp_stoch, cswp_stoch, tauc_stoch, changeSeed) 
 !-------------------------------------------------------------------------------------------------
 
   !----------------------------------------------------------------------------------------------------------------
@@ -2279,6 +2290,8 @@ contains
                                                       !    Dimensions: (ncol,nlay)
       real(kind=rb), intent(in) :: ciwp(:,:)          ! in-cloud ice water path
                                                       !    Dimensions: (ncol,nlay)
+      real(kind=rb), intent(in) :: cswp(:,:)          ! in-cloud snow path
+                                                      !    Dimensions: (ncol,nlay)
       real(kind=rb), intent(in) :: tauc(:,:,:)        ! in-cloud optical depth
                                                       !    Dimensions: (nbndlw,ncol,nlay)
 !      real(kind=rb), intent(in) :: ssac(:,:,:)       ! in-cloud single scattering albedo
@@ -2293,6 +2306,8 @@ contains
       real(kind=rb), intent(out) :: clwp_stoch(:,:,:) ! subcolumn in-cloud liquid water path
                                                       !    Dimensions: (ngptlw,ncol,nlay)
       real(kind=rb), intent(out) :: ciwp_stoch(:,:,:) ! subcolumn in-cloud ice water path
+                                                      !    Dimensions: (ngptlw,ncol,nlay)
+      real(kind=rb), intent(out) :: cswp_stoch(:,:,:) ! subcolumn in-cloud snow path
                                                       !    Dimensions: (ngptlw,ncol,nlay)
       real(kind=rb), intent(out) :: tauc_stoch(:,:,:) ! subcolumn in-cloud optical depth
                                                       !    Dimensions: (ngptlw,ncol,nlay)
@@ -2520,6 +2535,7 @@ contains
                   cld_stoch(isubcol,i,ilev) = 1._rb
                   clwp_stoch(isubcol,i,ilev) = clwp(i,ilev)
                   ciwp_stoch(isubcol,i,ilev) = ciwp(i,ilev)
+                  cswp_stoch(isubcol,i,ilev) = cswp(i,ilev)
                   n = ngb(isubcol)
                   tauc_stoch(isubcol,i,ilev) = tauc(n,i,ilev)
 !                  ssac_stoch(isubcol,i,ilev) = ssac(n,i,ilev)
@@ -2528,6 +2544,7 @@ contains
                   cld_stoch(isubcol,i,ilev) = 0._rb
                   clwp_stoch(isubcol,i,ilev) = 0._rb
                   ciwp_stoch(isubcol,i,ilev) = 0._rb
+                  cswp_stoch(isubcol,i,ilev) = 0._rb
                   tauc_stoch(isubcol,i,ilev) = 0._rb
 !                  ssac_stoch(isubcol,i,ilev) = 1._rb
 !                  asmc_stoch(isubcol,i,ilev) = 1._rb
@@ -2634,7 +2651,7 @@ contains
 
 ! ------------------------------------------------------------------------------
       subroutine cldprmc(nlayers, inflag, iceflag, liqflag, cldfmc, &
-                         ciwpmc, clwpmc, reicmc, relqmc, ncbands, taucmc)
+                         ciwpmc, clwpmc, cswpmc, reicmc, relqmc, resnmc, ncbands, taucmc)
 ! ------------------------------------------------------------------------------
 
 ! Purpose:  Compute the cloud optical depth(s) for each cloudy layer.
@@ -2652,9 +2669,13 @@ contains
                                                       !    Dimensions: (ngptlw,nlayers)
       real(kind=rb), intent(in) :: clwpmc(:,:)        ! cloud liquid water path [mcica]
                                                       !    Dimensions: (ngptlw,nlayers)
+      real(kind=rb), intent(in) :: cswpmc(:,:)        ! cloud snow path [mcica]
+                                                      !    Dimensions: (ngptlw,nlayers)
       real(kind=rb), intent(in) :: relqmc(:)          ! liquid particle effective radius (microns)
                                                       !    Dimensions: (nlayers)
       real(kind=rb), intent(in) :: reicmc(:)          ! ice particle effective radius (microns)
+                                                      !    Dimensions: (nlayers)
+      real(kind=rb), intent(in) :: resnmc(:)          ! snow particle effective radius (microns)
                                                       !    Dimensions: (nlayers)
                                                       ! specific definition of reicmc depends on setting of iceflag:
                                                       ! iceflag = 0: ice effective radius, r_ec, (Ebert and Curry, 1992),
@@ -2683,13 +2704,16 @@ contains
 
       real(kind=rb) :: abscoice(ngptlw)               ! ice absorption coefficients
       real(kind=rb) :: abscoliq(ngptlw)               ! liquid absorption coefficients
+      real(kind=rb) :: abscosno(ngptlw)               ! snow absorption coefficients
       real(kind=rb) :: cwp                            ! cloud water path
       real(kind=rb) :: radice                         ! cloud ice effective size (microns)
       real(kind=rb) :: factor                         ! 
       real(kind=rb) :: fint                           ! 
       real(kind=rb) :: radliq                         ! cloud liquid droplet radius (microns)
+      real(kind=rb) :: radsno                         ! cloud snow effective size (microns)
       real(kind=rb), parameter :: eps = 1.e-6_rb      ! epsilon
       real(kind=rb), parameter :: cldmin = 1.e-20_rb  ! minimum value for cloud quantities
+      character*80 errmess
 
 ! ------- Definitions -------
 
@@ -2748,7 +2772,7 @@ contains
 
       data icb /1,2,3,3,3,4,4,4,5, 5, 5, 5, 5, 5, 5, 5/
 
-      hvrclc = '$Revision: 1.8 $'
+!jm not thread safe      hvrclc = '$Revision: 1.8 $'
 
       ncbands = 1
 
@@ -2763,7 +2787,7 @@ contains
       do lay = 1, nlayers
 
         do ig = 1, ngptlw
-          cwp = ciwpmc(ig,lay) + clwpmc(ig,lay)
+          cwp = ciwpmc(ig,lay) + clwpmc(ig,lay) + cswpmc(ig,lay)
           if (cldfmc(ig,lay) .ge. cldmin .and. &
              (cwp .ge. cldmin .or. taucmc(ig,lay) .ge. cldmin)) then
 
@@ -2778,16 +2802,18 @@ contains
 !               taucmc(ig,lay) = abscld1 * cwp
 
 ! Separate treatement of ice clouds and water clouds.
-            elseif(inflag .eq. 2) then
+            elseif(inflag .ge. 2) then
                radice = reicmc(lay)
 
 ! Calculation of absorption coefficients due to ice clouds.
-               if (ciwpmc(ig,lay) .eq. 0.0_rb) then
+               if ((ciwpmc(ig,lay)+cswpmc(ig,lay)) .eq. 0.0_rb) then
                   abscoice(ig) = 0.0_rb
+                  abscosno(ig) = 0.0_rb
 
                elseif (iceflag .eq. 0) then
                   if (radice .lt. 10.0_rb) stop 'ICE RADIUS TOO SMALL'
                   abscoice(ig) = absice0(1) + absice0(2)/radice
+                  abscosno(ig) = 0.0_rb
 
                elseif (iceflag .eq. 1) then
                   if (radice .lt. 13.0_rb .or. radice .gt. 130._rb) stop &
@@ -2795,6 +2821,7 @@ contains
                   ncbands = 5
                   ib = icb(ngb(ig))
                   abscoice(ig) = absice1(1,ib) + absice1(2,ib)/radice
+                  abscosno(ig) = 0.0_rb
 
 ! For iceflag=2 option, ice particle effective radius is limited to 5.0 to 131.0 microns
 
@@ -2809,11 +2836,17 @@ contains
                      abscoice(ig) = &
                          absice2(index,ib) + fint * &
                          (absice2(index+1,ib) - (absice2(index,ib))) 
+                     abscosno(ig) = 0.0_rb
                
 ! For iceflag=3 option, ice particle generalized effective size is limited to 5.0 to 140.0 microns
 
-               elseif (iceflag .eq. 3) then
-                  if (radice .lt. 5.0_rb .or. radice .gt. 140.0_rb) stop 'ICE GENERALIZED EFFECTIVE SIZE OUT OF BOUNDS'
+               elseif (iceflag .ge. 3) then
+                  if (radice .lt. 5.0_rb .or. radice .gt. 140.0_rb) then
+                         write(errmess,'(A,i5,i5,f8.2,f8.2)' )         &
+               'ERROR: ICE GENERALIZED EFFECTIVE SIZE OUT OF BOUNDS'   &
+               ,ig, lay, ciwpmc(ig,lay), radice
+                         call wrf_error_fatal(errmess)
+                     end if
                      ncbands = 16
                      factor = (radice - 2._rb)/3._rb
                      index = int(factor)
@@ -2823,8 +2856,30 @@ contains
                      abscoice(ig) = &
                          absice3(index,ib) + fint * &
                          (absice3(index+1,ib) - (absice3(index,ib)))
+                     abscosno(ig) = 0.0_rb
    
                endif
+
+!..Incorporate additional effects due to snow.
+               if (cswpmc(ig,lay).gt.0.0_rb .and. iceflag .eq. 5) then
+                  radsno = resnmc(lay)
+                  if (radsno .lt. 5.0_rb .or. radsno .gt. 140.0_rb) then
+                         write(errmess,'(A,i5,i5,f8.2,f8.2)' )         &
+               'ERROR: SNOW GENERALIZED EFFECTIVE SIZE OUT OF BOUNDS'   &
+               ,ig, lay, cswpmc(ig,lay), radsno
+                         call wrf_error_fatal(errmess)
+                     end if
+                     ncbands = 16
+                     factor = (radsno - 2._rb)/3._rb
+                     index = int(factor)
+                     if (index .eq. 46) index = 45
+                     fint = factor - float(index)
+                     ib = ngb(ig)
+                     abscosno(ig) = &
+                         absice3(index,ib) + fint * &
+                         (absice3(index+1,ib) - (absice3(index,ib)))
+               endif
+
                   
 ! Calculation of absorption coefficients due to water clouds.
                if (clwpmc(ig,lay) .eq. 0.0_rb) then
@@ -2848,7 +2903,8 @@ contains
                endif
 
                taucmc(ig,lay) = ciwpmc(ig,lay) * abscoice(ig) + &
-                                clwpmc(ig,lay) * abscoliq(ig)
+                                clwpmc(ig,lay) * abscoliq(ig) + &
+                                cswpmc(ig,lay) * abscosno(ig)
 
             endif
          endif
@@ -3081,7 +3137,7 @@ contains
 !    htrc                         ! clear sky longwave heating rate (k/day)
 
 
-      hvrrtc = '$Revision: 1.3 $'
+!jm not thread safe      hvrrtc = '$Revision: 1.3 $'
 
       do ibnd = 1,nbndlw
          if (ibnd.eq.1 .or. ibnd.eq.4 .or. ibnd.ge.10) then
@@ -3500,7 +3556,7 @@ contains
       real(kind=rb) :: plog, fp, ft, ft1, water, scalefac, factor, compfp
 
 
-      hvrset = '$Revision: 1.3 $'
+!jm not thread safe      hvrset = '$Revision: 1.3 $'
 
       stpfac = 296._rb/1013._rb
 
@@ -4878,7 +4934,7 @@ contains
       real(kind=rb), intent(out) :: taug(:,:)         ! gaseous optical depth 
                                                       !    Dimensions: (nlayers,ngptlw)
 
-      hvrtau = '$Revision: 1.7 $'
+!jm not thread safe      hvrtau = '$Revision: 1.7 $'
 
 ! Calculate gaseous optical depth and planck fractions for each spectral band.
 
@@ -6135,7 +6191,7 @@ contains
             fac100 = fs * fac00(lay)
             fac110 = fs * fac10(lay)
          endif
-         if (specparm .lt. 0.125_rb) then
+         if (specparm1 .lt. 0.125_rb) then
             p = fs1 - 1
             p4 = p**4
             fk0 = p4
@@ -7846,7 +7902,7 @@ contains
 !     BPADE   Inverse of the Pade approximation constant
 !
 
-      hvrini = '$Revision: 1.3 $'
+!jm not thread safe      hvrini = '$Revision: 1.3 $'
 
 ! Initialize model data
       call lwdatinit(cpdair)
@@ -7961,7 +8017,7 @@ contains
       use parrrtm, only : maxxsec, maxinpx
       use rrlw_con, only: heatfac, grav, planck, boltz, &
                           clight, avogad, alosmt, gascon, radcn1, radcn2, &
-                          sbcnst, secdy 
+                          sbcnst, secdy, fluxfac, oneminus, pi
       use rrlw_vsn
 
       save 
@@ -8025,6 +8081,12 @@ contains
                                               ! (W cm-2 K-4)
       secdy = 8.6400e4_rb                     ! Number of seconds per day
                                               ! (s d-1)
+
+!jm moved here for thread safety, 20141107
+      oneminus = 1._rb - 1.e-6_rb
+      pi       = 2._rb * asin(1._rb)
+      fluxfac  =  pi * 2.e4_rb  ! orig:   fluxfac = pi * 2.d4
+
 !
 !     units are generally cgs
 !
@@ -10519,7 +10581,7 @@ contains
              h2ovmr  ,o3vmr   ,co2vmr  ,ch4vmr  ,n2ovmr  ,o2vmr , &
              cfc11vmr,cfc12vmr,cfc22vmr,ccl4vmr ,emis    , &
              inflglw ,iceflglw,liqflglw,cldfmcl , &
-             taucmcl ,ciwpmcl ,clwpmcl ,reicmcl ,relqmcl , &
+             taucmcl ,ciwpmcl ,clwpmcl , cswpmcl ,reicmcl ,relqmcl , resnmcl , &
              tauaer  , &
              uflx    ,dflx    ,hr      ,uflxc   ,dflxc,  hrc)
 
@@ -10663,6 +10725,8 @@ contains
                                                       !    Dimensions: (ngptlw,ncol,nlay)
       real(kind=rb), intent(in) :: clwpmcl(:,:,:)     ! In-cloud liquid water path (g/m2)
                                                       !    Dimensions: (ngptlw,ncol,nlay)
+      real(kind=rb), intent(in) :: cswpmcl(:,:,:)     ! In-cloud snow water path (g/m2)
+                                                      !    Dimensions: (ngptlw,ncol,nlay)
       real(kind=rb), intent(in) :: reicmcl(:,:)       ! Cloud ice particle effective size (microns)
                                                       !    Dimensions: (ncol,nlay)
                                                       ! specific definition of reicmcl depends on setting of iceflglw:
@@ -10676,6 +10740,8 @@ contains
                                                       !               dge range is limited to 5.0 to 140.0 microns
                                                       !               [dge = 1.0315 * r_ec]
       real(kind=rb), intent(in) :: relqmcl(:,:)       ! Cloud water drop effective radius (microns)
+                                                      !    Dimensions: (ncol,nlay)
+      real(kind=rb), intent(in) :: resnmcl(:,:)       ! Snow effective radius (microns)
                                                       !    Dimensions: (ncol,nlay)
       real(kind=rb), intent(in) :: taucmcl(:,:,:)     ! In-cloud optical depth
                                                       !    Dimensions: (ngptlw,ncol,nlay)
@@ -10803,8 +10869,10 @@ contains
       real(kind=rb) :: cldfmc(ngptlw,nlay+1)  ! cloud fraction [mcica]
       real(kind=rb) :: ciwpmc(ngptlw,nlay+1)  ! in-cloud ice water path [mcica]
       real(kind=rb) :: clwpmc(ngptlw,nlay+1)  ! in-cloud liquid water path [mcica]
+      real(kind=rb) :: cswpmc(ngptlw,nlay+1)  ! in-cloud snow path [mcica]
       real(kind=rb) :: relqmc(nlay+1)         ! liquid particle effective radius (microns)
       real(kind=rb) :: reicmc(nlay+1)         ! ice particle effective size (microns)
+      real(kind=rb) :: resnmc(nlay+1)         ! snow particle effective size (microns)
       real(kind=rb) :: taucmc(ngptlw,nlay+1)  ! in-cloud optical depth [mcica]
 !      real(kind=rb) :: ssacmc(ngptlw,nlay+1) ! in-cloud single scattering albedo [mcica]
                                               !   for future expansion 
@@ -10826,9 +10894,9 @@ contains
 !
 ! Initializations
 
-      oneminus = 1._rb - 1.e-6_rb
-      pi = 2._rb * asin(1._rb)
-      fluxfac = pi * 2.e4_rb                  ! orig:   fluxfac = pi * 2.d4  
+!jm not thread safe      oneminus = 1._rb - 1.e-6_rb
+!jm not thread safe      pi = 2._rb * asin(1._rb)
+!jm not thread safe      fluxfac = pi * 2.e4_rb                  ! orig:   fluxfac = pi * 2.d4  
       istart = 1
       iend = 16
       iout = 0
@@ -10870,10 +10938,10 @@ contains
               play, plev, tlay, tlev, tsfc, h2ovmr, &
               o3vmr, co2vmr, ch4vmr, n2ovmr, o2vmr, cfc11vmr, cfc12vmr, &
               cfc22vmr, ccl4vmr, emis, inflglw, iceflglw, liqflglw, &
-              cldfmcl, taucmcl, ciwpmcl, clwpmcl, reicmcl, relqmcl, tauaer, &
+              cldfmcl, taucmcl, ciwpmcl, clwpmcl, cswpmcl, reicmcl, relqmcl, resnmcl, tauaer, &
               nlayers, pavel, pz, tavel, tz, tbound, semiss, coldry, &
               wkl, wbrodl, wx, pwvcm, inflag, iceflag, liqflag, &
-              cldfmc, taucmc, ciwpmc, clwpmc, reicmc, relqmc, taua)
+              cldfmc, taucmc, ciwpmc, clwpmc, cswpmc, reicmc, relqmc, resnmc, taua)
 
 !  For cloudy atmosphere, use cldprop to set cloud optical properties based on
 !  input cloud physical properties.  Select method based on choices described
@@ -10882,7 +10950,7 @@ contains
 !  optical depth are transferred to rrtmg_lw arrays in cldprop.  
 
          call cldprmc(nlayers, inflag, iceflag, liqflag, cldfmc, ciwpmc, &
-                      clwpmc, reicmc, relqmc, ncbands, taucmc)
+                      clwpmc, cswpmc, reicmc, relqmc, resnmc, ncbands, taucmc)
 
 ! Calculate information needed by the radiative transfer routine
 ! that is specific to this atmosphere, especially some of the 
@@ -10965,10 +11033,10 @@ contains
               play, plev, tlay, tlev, tsfc, h2ovmr, &
               o3vmr, co2vmr, ch4vmr, n2ovmr, o2vmr, cfc11vmr, cfc12vmr, &
               cfc22vmr, ccl4vmr, emis, inflglw, iceflglw, liqflglw, &
-              cldfmcl, taucmcl, ciwpmcl, clwpmcl, reicmcl, relqmcl, tauaer, &
+              cldfmcl, taucmcl, ciwpmcl, clwpmcl, cswpmcl, reicmcl, relqmcl, resnmcl, tauaer, &
               nlayers, pavel, pz, tavel, tz, tbound, semiss, coldry, &
               wkl, wbrodl, wx, pwvcm, inflag, iceflag, liqflag, &
-              cldfmc, taucmc, ciwpmc, clwpmc, reicmc, relqmc, taua)
+              cldfmc, taucmc, ciwpmc, clwpmc, cswpmc, reicmc, relqmc, resnmc, taua)
 !***************************************************************************
 !
 !  Input atmospheric profile from GCM, and prepare it for use in RRTMG_LW.
@@ -11033,9 +11101,13 @@ contains
                                                       !    Dimensions: (ngptlw,ncol,nlay)
       real(kind=rb), intent(in) :: clwpmcl(:,:,:)     ! In-cloud liquid water path (g/m2)
                                                       !    Dimensions: (ngptlw,ncol,nlay)
+      real(kind=rb), intent(in) :: cswpmcl(:,:,:)     ! In-cloud snow water path (g/m2)
+                                                      !    Dimensions: (ngptlw,ncol,nlay)
       real(kind=rb), intent(in) :: relqmcl(:,:)       ! Cloud water drop effective radius (microns)
                                                       !    Dimensions: (ncol,nlay)
       real(kind=rb), intent(in) :: reicmcl(:,:)       ! Cloud ice effective size (microns)
+                                                      !    Dimensions: (ncol,nlay)
+      real(kind=rb), intent(in) :: resnmcl(:,:)       ! Snow effective size (microns)
                                                       !    Dimensions: (ncol,nlay)
       real(kind=rb), intent(in) :: taucmcl(:,:,:)     ! In-cloud optical depth
                                                       !    Dimensions: (ngptlw,ncol,nlay)
@@ -11078,9 +11150,13 @@ contains
                                                       !    Dimensions: (ngptlw,nlay)
       real(kind=rb), intent(out) :: clwpmc(:,:)       ! in-cloud liquid water path [mcica]
                                                       !    Dimensions: (ngptlw,nlay)
+      real(kind=rb), intent(out) :: cswpmc(:,:)       ! in-cloud snow path [mcica]
+                                                      !    Dimensions: (ngptlw,nlay)
       real(kind=rb), intent(out) :: relqmc(:)         ! liquid particle effective radius (microns)
                                                       !    Dimensions: (nlay)
       real(kind=rb), intent(out) :: reicmc(:)         ! ice particle effective size (microns)
+                                                      !    Dimensions: (nlay)
+      real(kind=rb), intent(out) :: resnmc(:)         ! snow effective size (microns)
                                                       !    Dimensions: (nlay)
       real(kind=rb), intent(out) :: taucmc(:,:)       ! in-cloud optical depth [mcica]
                                                       !    Dimensions: (ngptlw,nlay)
@@ -11127,8 +11203,10 @@ contains
       taucmc(:,:) = 0.0_rb
       ciwpmc(:,:) = 0.0_rb
       clwpmc(:,:) = 0.0_rb
+      cswpmc(:,:) = 0.0_rb
       reicmc(:) = 0.0_rb
       relqmc(:) = 0.0_rb
+      resnmc(:) = 0.0_rb
       taua(:,:) = 0.0_rb
       amttl = 0.0_rb
       wvttl = 0.0_rb
@@ -11268,9 +11346,11 @@ contains
                taucmc(ig,l) = taucmcl(ig,iplon,l)
                ciwpmc(ig,l) = ciwpmcl(ig,iplon,l)
                clwpmc(ig,l) = clwpmcl(ig,iplon,l)
+               cswpmc(ig,l) = cswpmcl(ig,iplon,l)
             enddo
             reicmc(l) = reicmcl(iplon,l)
             relqmc(l) = relqmcl(iplon,l)
+            resnmc(l) = resnmcl(iplon,l)
          enddo
 
 ! If an extra layer is being used in RRTMG, set all cloud properties to zero in the extra layer.
@@ -11294,6 +11374,11 @@ MODULE module_ra_rrtmg_lw
 
 use module_model_constants, only : cp
 use module_wrf_error
+#if (HWRF == 1)
+   USE module_state_description, ONLY : FER_MP_HIRES, FER_MP_HIRES_ADVECT, ETAMP_HWRF 
+#else
+   USE module_state_description, ONLY : FER_MP_HIRES, FER_MP_HIRES_ADVECT
+#endif
 !use module_dm
 
 use parrrtm, only : nbndlw, ngptlw
@@ -11302,23 +11387,23 @@ use rrtmg_lw_rad, only: rrtmg_lw
 use mcica_subcol_gen_lw, only: mcica_subcol_lw
 
     real retab(95)
-    data retab / 						&
-         5.92779, 6.26422, 6.61973, 6.99539, 7.39234,	&
-         7.81177, 8.25496, 8.72323, 9.21800, 9.74075, 10.2930,	&
-         10.8765, 11.4929, 12.1440, 12.8317, 13.5581, 14.2319, 	&
-         15.0351, 15.8799, 16.7674, 17.6986, 18.6744, 19.6955,	&
-         20.7623, 21.8757, 23.0364, 24.2452, 25.5034, 26.8125,	&
-         27.7895, 28.6450, 29.4167, 30.1088, 30.7306, 31.2943, 	&
-         31.8151, 32.3077, 32.7870, 33.2657, 33.7540, 34.2601, 	&
-         34.7892, 35.3442, 35.9255, 36.5316, 37.1602, 37.8078,	&
-         38.4720, 39.1508, 39.8442, 40.5552, 41.2912, 42.0635,	&
-         42.8876, 43.7863, 44.7853, 45.9170, 47.2165, 48.7221,	&
-         50.4710, 52.4980, 54.8315, 57.4898, 60.4785, 63.7898,	&
-         65.5604, 71.2885, 75.4113, 79.7368, 84.2351, 88.8833,	&
-         93.6658, 98.5739, 103.603, 108.752, 114.025, 119.424, 	&
-         124.954, 130.630, 136.457, 142.446, 148.608, 154.956,	&
-         161.503, 168.262, 175.248, 182.473, 189.952, 197.699,	&
-         205.728, 214.055, 222.694, 231.661, 240.971, 250.639/	
+    data retab /                                                &
+         5.92779, 6.26422, 6.61973, 6.99539, 7.39234,   &
+         7.81177, 8.25496, 8.72323, 9.21800, 9.74075, 10.2930,  &
+         10.8765, 11.4929, 12.1440, 12.8317, 13.5581, 14.2319,  &
+         15.0351, 15.8799, 16.7674, 17.6986, 18.6744, 19.6955,  &
+         20.7623, 21.8757, 23.0364, 24.2452, 25.5034, 26.8125,  &
+         27.7895, 28.6450, 29.4167, 30.1088, 30.7306, 31.2943,  &
+         31.8151, 32.3077, 32.7870, 33.2657, 33.7540, 34.2601,  &
+         34.7892, 35.3442, 35.9255, 36.5316, 37.1602, 37.8078,  &
+         38.4720, 39.1508, 39.8442, 40.5552, 41.2912, 42.0635,  &
+         42.8876, 43.7863, 44.7853, 45.9170, 47.2165, 48.7221,  &
+         50.4710, 52.4980, 54.8315, 57.4898, 60.4785, 63.7898,  &
+         65.5604, 71.2885, 75.4113, 79.7368, 84.2351, 88.8833,  &
+         93.6658, 98.5739, 103.603, 108.752, 114.025, 119.424,  &
+         124.954, 130.630, 136.457, 142.446, 148.608, 154.956,  &
+         161.503, 168.262, 175.248, 182.473, 189.952, 197.699,  &
+         205.728, 214.055, 222.694, 231.661, 240.971, 250.639/  
     !
     save retab
     ! For buffer layer adjustment.  Steven Cavallo, Dec 2010.
@@ -11337,11 +11422,16 @@ CONTAINS
                        p8w, p3d, pi3d,                            &
                        dz8w, tsk, t3d, t8w, rho3d, r, g,          &
                        icloud, warm_rain, cldfra3d,               &
+                       lradius,iradius,                           & 
+                       is_cammgmp_used,                           & 
                        f_ice_phy, f_rain_phy,                     &
                        xland, xice, snow,                         &
                        qv3d, qc3d, qr3d,                          &
                        qi3d, qs3d, qg3d,                          &
+                       o3input, o33d,                             &
                        f_qv, f_qc, f_qr, f_qi, f_qs, f_qg,        &
+                       re_cloud, re_ice, re_snow,                 &  ! G. Thompson
+                       has_reqc, has_reqi, has_reqs,              &  ! G. Thompson
                        tauaerlw1,tauaerlw2,tauaerlw3,tauaerlw4,   & ! czhao 
                        tauaerlw5,tauaerlw6,tauaerlw7,tauaerlw8,   & ! czhao 
                        tauaerlw9,tauaerlw10,tauaerlw11,tauaerlw12,   & ! czhao 
@@ -11350,21 +11440,30 @@ CONTAINS
 !jdfcz                 progn,prescribe,                           & !czhao
                        progn,                                     & !czhao
                        qndrop3d,f_qndrop,                         & !czhao
+!ccc added for time varying gases.
+                       yr,julian,                                 &
+!ccc
+                       mp_physics,                                &
                        ids,ide, jds,jde, kds,kde,                 & 
                        ims,ime, jms,jme, kms,kme,                 &
                        its,ite, jts,jte, kts,kte,                 &
                        lwupflx, lwupflxc, lwdnflx, lwdnflxc       &
                                                                   )
 !------------------------------------------------------------------
+!ccc To use clWRF time varying trace gases
+   USE MODULE_RA_CLWRF_SUPPORT, ONLY : read_CAMgases
+
    IMPLICIT NONE
 !------------------------------------------------------------------
    LOGICAL, INTENT(IN )      ::        warm_rain
+   LOGICAL, INTENT(IN )      ::   is_CAMMGMP_used ! Added for CAM5 RRTMG<->CAMMGMP
 !
    INTEGER, INTENT(IN )      ::        ids,ide, jds,jde, kds,kde, &
                                        ims,ime, jms,jme, kms,kme, &
                                        its,ite, jts,jte, kts,kte
 
    INTEGER, INTENT(IN )      ::        ICLOUD
+   INTEGER, INTENT(IN )      ::        MP_PHYSICS
 !
    REAL, DIMENSION( ims:ime, kms:kme, jms:jme )                 , &
          INTENT(IN   ) ::                                   dz8w, &
@@ -11393,6 +11492,11 @@ CONTAINS
          INTENT(IN   )  ::                                 XLAND, &
                                                             XICE, &
                                                             SNOW
+!ccc Added for time-varying trace gases.
+   INTEGER, INTENT(IN    ) ::                                 yr
+   REAL, INTENT(IN    ) ::                                julian
+!ccc
+
 !
 ! Optional
 !
@@ -11400,6 +11504,9 @@ CONTAINS
          OPTIONAL                                               , &
          INTENT(IN   ) ::                                         &
                                                         CLDFRA3D, &
+                                                         LRADIUS, &
+                                                         IRADIUS, &
+
                                                             QV3D, &
                                                             QC3D, &
                                                             QR3D, &
@@ -11407,6 +11514,14 @@ CONTAINS
                                                             QS3D, &
                                                             QG3D, &
                                                         QNDROP3D
+
+!..Added by G. Thompson to couple cloud physics effective radii.
+   REAL, DIMENSION(ims:ime,kms:kme,jms:jme), INTENT(IN)::         &
+                                                        re_cloud, &
+                                                          re_ice, &
+                                                         re_snow
+   INTEGER, INTENT(IN):: has_reqc, has_reqi, has_reqs
+
    real pi,third,relconst,lwpmin,rhoh2o
 
    REAL, DIMENSION( ims:ime, kms:kme, jms:jme )                 , &
@@ -11427,6 +11542,11 @@ CONTAINS
    INTEGER,    INTENT(IN  ), OPTIONAL   ::       aer_ra_feedback
 !jdfcz   INTEGER,    INTENT(IN  ), OPTIONAL   ::       progn,prescribe
    INTEGER,    INTENT(IN  ), OPTIONAL   ::       progn
+!  Ozone
+   REAL, DIMENSION( ims:ime, kms:kme, jms:jme )                 , &
+         OPTIONAL                                               , &
+         INTENT(IN   ) :: O33D
+   INTEGER, OPTIONAL, INTENT(IN ) :: o3input
 
       real, parameter :: thresh=1.e-9
       real slope
@@ -11459,9 +11579,15 @@ CONTAINS
                                                             QC1D, &
                                                             QR1D, &
                                                             QI1D, &
+                                                           RHO1D, &
                                                             QS1D, &
                                                             QG1D, &
+                                                            O31D, &
                                                           qndrop1d 
+!BSF: From eq. (5) on p. 2434 in McFarquhar & Heymsfield (1996)
+       real, parameter :: re_50C=1250.0/9.917, re_40C=1250.0/9.337, &
+                          re_30C=1250.0/9.208, re_20C=1250.0/9.387
+
 
 ! Added local arrays for RRTMG
     integer ::                                              ncol, &
@@ -11489,6 +11615,7 @@ CONTAINS
 ! For old cloud property specification for rrtm_lw
     real, dimension( kts:kte )  ::                          clwp, &
                                                             ciwp, &
+                                                            cswp, &
                                                             plwp, &
                                                             piwp
 ! Surface emissivity (for 16 LW spectral bands)
@@ -11497,15 +11624,19 @@ CONTAINS
 ! though no clouds are allowed in extra layer
     real, dimension( 1, kts:nlayers )  ::                 clwpth, &
                                                           ciwpth, &
+                                                          cswpth, &
                                                              rel, &
                                                              rei, &
+                                                             res, &
                                                          cldfrac, &
                                                          relqmcl, &
-                                                         reicmcl
+                                                         reicmcl, &
+                                                         resnmcl
     real, dimension( nbndlw, 1, kts:nlayers )  ::        taucld
     real, dimension( ngptlw, 1, kts:nlayers )  ::        cldfmcl, &
                                                          clwpmcl, &
                                                          ciwpmcl, &
+                                                         cswpmcl, &
                                                          taucmcl
     real, dimension( 1, kts:nlayers, nbndlw )  ::           tauaer
 
@@ -11521,6 +11652,19 @@ CONTAINS
                                                               ps
     real ::                                                   ro, &
                                                               dz
+    real:: snow_mass_factor
+
+!..We can use message interface regardless of what options are running,
+!.. so let us ask for it here.
+      CHARACTER(LEN=256)                           :: message
+      LOGICAL, EXTERNAL                            :: wrf_dm_on_monitor
+
+!ccc To add time-varying trace gases (CO2, N2O and CH4). Read the conc.  from file
+! then interpolate to date of run.
+#ifdef CLWRFGHG
+! CLWRF-UC June.09
+      REAL(8)                                      :: co2, n2o, ch4, cfc11, cfc12
+#else
 
 ! Set trace gas volume mixing ratios, 2005 values, IPCC (2007)
 ! carbon dioxide (379 ppmv)
@@ -11538,6 +11682,7 @@ CONTAINS
 ! cfc-12 (538 ppt)
     real :: cfc12
     data cfc12 / 0.538e-9 / 
+#endif
 ! cfc-22 (169 ppt)
     real :: cfc22
     data cfc22 / 0.169e-9 / 
@@ -11582,9 +11727,14 @@ CONTAINS
 
     real, dimension(1, 1:kte-kts+1) ::   cicewp, &     ! in-cloud cloud ice water path
                                          cliqwp, &     ! in-cloud cloud liquid water path
+                                         csnowp, &     ! in-cloud snow water path
                                           reliq, &     ! effective drop radius (microns)
-                                          reice        ! ice effective drop size (microns)
-    real :: gliqwp, gicewp, gravmks
+                                          reice        ! effective ice crystal size (microns)
+    real, dimension(1, 1:kte-kts+1):: recloud1d, &
+                                        reice1d, &
+                                       resnow1d
+
+    real :: gliqwp, gicewp, gsnowp, gravmks
 
 !
 !    REAL   ::  TSFC,GLW0,OLR0,EMISS0,FP
@@ -11594,14 +11744,15 @@ CONTAINS
     integer :: pcols, pver
 
 !
-    INTEGER :: i,j,K
+    INTEGER :: i,j,K, idx_rei
+    REAL :: corr
     LOGICAL :: predicate
 
 ! Added for top of model adjustment.  Steven Cavallo NCAR/MMM December 2010
     INTEGER, PARAMETER :: nproflevs = 60 ! Constant, from the table
     INTEGER :: L, LL, klev               ! Loop indices      
     REAL, DIMENSION( kts:nlayers+1 ) :: varint
-    REAL :: wght,vark,vark1       
+    REAL :: wght,vark,vark1,tem1,tem2,tem3
     REAL :: PPROF(nproflevs), TPROF(nproflevs)            
     ! Weighted mean pressure and temperature profiles from midlatitude 
     ! summer (MLS),midlatitude winter (MLW), sub-Arctic 
@@ -11618,17 +11769,17 @@ CONTAINS
                   0.56,0.48,0.41,0.35,0.30,0.26,                  &
                   0.22,0.19,0.16,0.14,0.12,0.10/
     DATA TPROF   /286.96,281.07,275.16,268.11,260.56,253.02,      &
-         	  245.62,238.41,231.57,225.91,221.72,217.79,      &
-		  215.06,212.74,210.25,210.16,210.69,212.14,      &
-		  213.74,215.37,216.82,217.94,219.03,220.18,      &
-		  221.37,222.64,224.16,225.88,227.63,229.51,      &
-		  231.50,233.73,236.18,238.78,241.60,244.44,      &
-		  247.35,250.33,253.32,256.30,259.22,262.12,      &
-		  264.80,266.50,267.59,268.44,268.69,267.76,      &
-		  266.13,263.96,261.54,258.93,256.15,253.23,      &
-		  249.89,246.67,243.48,240.25,236.66,233.86/	
+                  245.62,238.41,231.57,225.91,221.72,217.79,      &
+                  215.06,212.74,210.25,210.16,210.69,212.14,      &
+                  213.74,215.37,216.82,217.94,219.03,220.18,      &
+                  221.37,222.64,224.16,225.88,227.63,229.51,      &
+                  231.50,233.73,236.18,238.78,241.60,244.44,      &
+                  247.35,250.33,253.32,256.30,259.22,262.12,      &
+                  264.80,266.50,267.59,268.44,268.69,267.76,      &
+                  266.13,263.96,261.54,258.93,256.15,253.23,      &
+                  249.89,246.67,243.48,240.25,236.66,233.86/    
 !------------------------------------------------------------------
-#ifdef WRF_CHEM
+#if ( WRF_CHEM == 1 )
       IF ( aer_ra_feedback == 1) then
       IF ( .NOT. &
       ( PRESENT(tauaerlw1) .AND. &
@@ -11658,6 +11809,22 @@ CONTAINS
 !                                                              
 ! All fields are ordered vertically from bottom to top
 ! Pressures are in mb
+!
+!ccc Read time-varying trace gases concentrations and interpolate them to run date.
+!
+#ifdef CLWRFGHG
+
+   CALL read_CAMgases(yr,julian,"RRTMG",co2,n2o,ch4,cfc11,cfc12)
+
+   IF ( wrf_dm_on_monitor() ) THEN
+     WRITE(message,*)'CAM-CLWRF interpolated values______ year:',yr,' julian day:',julian
+     call wrf_debug( 100, message)
+     WRITE(message,*)'  CAM-CLWRF co2vmr: ',co2,' n2ovmr:',n2o,' ch4vmr:',ch4,' cfc11vmr:',cfc11,' cfc12vmr:',cfc12
+     call wrf_debug( 100, message)
+   ENDIF
+
+#endif
+!ccc
 
 ! latitude loop
   j_loop: do j = jts,jte
@@ -11684,10 +11851,21 @@ CONTAINS
             QV1D(K)=max(0.,QV1D(K))
          ENDDO
 
+         IF (PRESENT(O33D)) THEN
+            DO K=kts,kte
+               O31D(K)=O33D(I,K,J)
+            ENDDO
+         ELSE
+            DO K=kts,kte
+               O31D(K)=0.0
+            ENDDO
+         ENDIF
+
          DO K=kts,kte
             TTEN1D(K)=0.
             T1D(K)=T3D(I,K,J)
             P1D(K)=P3D(I,K,J)/100.
+            RHO1D(K)=RHO3D(I,K,J)
             DZ1D(K)=dz8w(I,K,J)
          ENDDO
 
@@ -11779,7 +11957,8 @@ CONTAINS
             IF ( PRESENT(F_QI) .and. PRESENT(F_QC) .and. PRESENT(F_QS) .and. PRESENT(F_ICE_PHY) ) THEN
                IF ( F_QC .and. .not. F_QI .and. F_QS ) THEN
                   DO K=kts,kte
-                     qi1d(k) = qs3d(i,k,j)
+                     qi1d(k) = 0.1*qs3d(i,k,j)
+                     qs1d(k) = 0.9*qs3d(i,k,j)
                      qc1d(k) = qc3d(i,k,j)
                      qi1d(k) = max(0.,qi1d(k))
                      qc1d(k) = max(0.,qc1d(k))
@@ -11787,6 +11966,24 @@ CONTAINS
                ENDIF
             ENDIF
 
+        ENDIF
+
+!   For mp option=5 or 85  (new Ferrier- Aligo or fer_hires scheme), QI3D saves all
+#if (HWRF == 1)
+        IF ( mp_physics == FER_MP_HIRES .OR. &
+             mp_physics == FER_MP_HIRES_ADVECT .OR. &
+             mp_physics == ETAMP_HWRF ) THEN
+#else
+        IF ( mp_physics == FER_MP_HIRES .OR. &
+             mp_physics == FER_MP_HIRES_ADVECT) THEN
+#endif
+                  DO K=kts,kte
+                     qi1d(k) = qi3d(i,k,j)
+                     qs1d(k) = 0.0
+                     qc1d(k) = qc3d(i,k,j)
+                     qi1d(k) = max(0.,qi1d(k))
+                     qc1d(k) = max(0.,qc1d(k))
+                  ENDDO
         ENDIF
 
 !         EMISS0=EMISS(I,J)
@@ -11817,6 +12014,90 @@ CONTAINS
          inflglw = 2
          iceflglw = 3
          liqflglw = 1
+
+!Mukul change the flags here with reference to the new effective cloud/ice/snow radius
+         IF (ICLOUD .ne. 0) THEN
+            IF ( has_reqc .ne. 0) THEN
+               IF ( wrf_dm_on_monitor() ) THEN
+                 WRITE(message,*)'RRTMG: pre-computed cloud droplet effective radius found, setting inflglw=3'
+                 call wrf_debug(150, message)
+               ENDIF
+               inflglw = 3
+               DO K=kts,kte
+                  recloud1D(ncol,K) = MAX(2.5, re_cloud(I,K,J)*1.E6)
+                  if (recloud1D(ncol,K).LE.2.5.AND.cldfra3d(i,k,j).gt.0. &
+     &                            .AND. (XLAND(I,J)-1.5).GT.0.) then     !--- Ocean
+                     recloud1D(ncol,K) = 10.5
+                  elseif(recloud1D(ncol,K).LE.2.5.AND.cldfra3d(i,k,j).gt.0. &
+     &                            .AND. (XLAND(I,J)-1.5).LT.0.) then     !--- Land
+                     recloud1D(ncol,K) = 7.5
+                  endif
+               ENDDO
+            ELSE
+               DO K=kts,kte
+                  recloud1D(ncol,K) = 5.0
+               ENDDO
+            ENDIF
+
+            IF ( has_reqi .ne. 0) THEN
+               IF ( wrf_dm_on_monitor() ) THEN
+                 WRITE(message,*)'RRTMG: pre-computed cloud ice effective radius found, setting inflglw=4 and iceflglw=4'
+                 call wrf_debug(150, message)
+               ENDIF
+               inflglw  = 4
+               iceflglw = 4
+               DO K=kts,kte
+                  reice1D(ncol,K) = MAX(5., re_ice(I,K,J)*1.E6)
+                  if (reice1D(ncol,K).LE.5..AND.cldfra3d(i,k,j).gt.0.) then
+                     idx_rei = int(t3d(i,k,j)-179.)
+                     idx_rei = min(max(idx_rei,1),75)
+                     corr = t3d(i,k,j) - int(t3d(i,k,j))
+                     reice1D(ncol,K) = retab(idx_rei)*(1.-corr) +       &
+     &                                 retab(idx_rei+1)*corr
+                     reice1D(ncol,K) = MAX(reice1D(ncol,K), 5.0)
+                  endif
+               ENDDO
+            ELSE
+               DO K=kts,kte
+#if (EM_CORE==1) 
+                  reice1D(ncol,K) = 10.0
+#else
+                  tem2 = 25.0  !- was 10.0
+                  tem3=1.e3*rho1d(k)*qi1d(k)  !- IWC (g m^-3)
+                  if (tem3>thresh) then       !- Only when IWC>1.e-9 gm^-3
+                    tem1=t1d(k)-273.15
+                    if (tem1 < -50.0) then
+                      tem2 = re_50C*tem3**0.109
+                    elseif (tem1 < -40.0) then
+                      tem2 = re_40C*tem3**0.08
+                    elseif (tem1 < -30.0) then
+                      tem2 = re_30C*tem3**0.055
+                    else
+                      tem2 = re_20C*tem3**0.031
+                    endif
+                    tem2 = max(25.,tem2)
+                  endif
+                  reice1D(ncol,K) = min(tem2, 135.72)   !- 1.0315*reice<= 140 microns
+#endif
+               ENDDO
+            ENDIF
+
+            IF ( has_reqs .ne. 0) THEN
+               IF ( wrf_dm_on_monitor() ) THEN
+                 WRITE(message,*)'RRTMG: pre-computed snow effective radius found, setting inflglw=5 and iceflglw=5'
+                 call wrf_debug(150, message)
+               ENDIF
+               inflglw  = 5
+               iceflglw = 5
+               DO K=kts,kte
+                  resnow1D(ncol,K) = MAX(10., re_snow(I,K,J)*1.E6)
+               ENDDO
+            ELSE
+               DO K=kts,kte
+                  resnow1D(ncol,K) = 10.0
+               ENDDO
+            ENDIF
+         ENDIF
 
 ! Layer indexing goes bottom to top here for all fields.
 ! Water vapor and ozone are converted from mmr to vmr. 
@@ -11917,8 +12198,8 @@ CONTAINS
        do L=kte+1,nlayers+1,1
           tlev(ncol,L) = varint(L) + (tlev(ncol,kte) - varint(kte))
           !if ( L .le. nlay ) then
-	  tlay(ncol,L-1) = 0.5*(tlev(ncol,L) + tlev(ncol,L-1))  
-	  !endif
+          tlay(ncol,L-1) = 0.5*(tlev(ncol,L) + tlev(ncol,L-1))  
+          !endif
        enddo 
 
        ! Now the chemical species (except for ozone)
@@ -11932,18 +12213,35 @@ CONTAINS
           cfc12vmr(ncol,L) = cfc12vmr(ncol,kte) 
           cfc22vmr(ncol,L) = cfc22vmr(ncol,kte) 
           ccl4vmr(ncol,L) = ccl4vmr(ncol,kte) 
-       enddo	 
+       enddo     
 ! End top of model buffer 
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!	
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! 
 ! Get ozone profile including amount in extra layer above model top.
 ! Steven Cavallo: Must pass nlay-1 into subroutine to get nlayers 
 ! dimension for o3mmr
          call inirad (o3mmr,plev,kts,nlay-1)
 
 ! Steven Cavallo: Changed to nlayers from kte+1
+        if(present(o33d)) then
+         do k = kts, nlayers
+            o3vmr(ncol,k) = o3mmr(k) * amdo
+            IF ( PRESENT( O33D ) ) THEN
+            if(o3input .eq. 2)then
+               if(k.le.kte)then
+                 o3vmr(ncol,k) = o31d(k)
+               else
+! apply shifted climatology profile above model top
+                 o3vmr(ncol,k) = o31d(kte) - o3mmr(kte)*amdo + o3mmr(k)*amdo
+                 if(o3vmr(ncol,k) .le. 0.)o3vmr(ncol,k) = o3mmr(k)*amdo
+               endif
+            endif
+            ENDIF
+         enddo
+        else
          do k = kts, nlayers
             o3vmr(ncol,k) = o3mmr(k) * amdo
          enddo
+        endif
 
 ! Set surface emissivity in each RRTMG longwave band
          do nb = 1, nbndlw
@@ -12013,6 +12311,44 @@ CONTAINS
                cliqwp(ncol,k) = gliqwp / max(0.01,cldfrac(ncol,k))               ! In-cloud liquid water path.
             end do
 
+
+! Mukul
+!..The ice water path is already sum of cloud ice and snow, but when we have explicit
+!.. ice effective radius, overwrite the ice path with only the cloud ice variable,
+!.. leaving out the snow for its own effect.
+           if(iceflglw.ge.4)then
+              do k = kts, kte
+                     gicewp = qi1d(k) * pdel(ncol,k)*100.0 / gravmks * 1000.0     ! Grid box ice water path.
+                     cicewp(ncol,k) = gicewp / max(0.01,cldfrac(ncol,k))               ! In-cloud ice water path.
+              end do
+           end if
+
+!..Here the snow path is adjusted if (radiation) effective radius of snow is
+!.. larger than what we currently have in the lookup tables.  Since mass goes
+!.. rather close to diameter squared, adjust the mixing ratio of snow used
+!.. to compute its water path in combination with the max diameter.  Not a
+!.. perfect fix, but certainly better than using all snow mass when diameter is
+!.. far larger than table currently contains and crystal sizes much larger than
+!.. about 140 microns have lesser impact than those much smaller sizes.
+
+           if(iceflglw.eq.5)then
+              do k = kts, kte
+                 snow_mass_factor = 1.0
+                 if (resnow1d(ncol,k) .gt. 130.)then
+                     snow_mass_factor = (130.0/resnow1d(ncol,k))*(130.0/resnow1d(ncol,k))
+                     resnow1d(ncol,k)   = 130.0
+                     IF ( wrf_dm_on_monitor() ) THEN
+                       WRITE(message,*)'RRTMG:  reducing snow mass (cloud path) to ', &
+                                       nint(snow_mass_factor*100.), ' percent of full value'
+                       call wrf_debug(150, message)
+                     ENDIF
+                 endif
+                 gsnowp = qs1d(k) * snow_mass_factor * pdel(ncol,k)*100.0 / gravmks * 1000.0     ! Grid box snow water path.
+                 csnowp(ncol,k) = gsnowp / max(0.01,cldfrac(ncol,k))
+              end do
+           end if
+
+
 !link the aerosol feedback to cloud  -czhao
   if( PRESENT( progn ) ) then
     if (progn == 1) then
@@ -12043,7 +12379,7 @@ CONTAINS
       end do
 !jdfcz     else ! prescribe 
 ! following Kiehl
-      call relcalc(ncol, pcols, pver, tlay, landfrac, landm, icefrac, reliq, snowh)
+!     call relcalc(ncol, pcols, pver, tlay, landfrac, landm, icefrac, reliq, snowh)
 !     write(0,*) 'lw prescribe aerosol',maxval(qndrop3d)
 !jdfcz     endif
     else  ! progn   
@@ -12056,6 +12392,26 @@ CONTAINS
 ! following Kristjansson and Mitchell
             call reicalc(ncol, pcols, pver, tlay, reice)
 
+
+!..If we already have effective radius of cloud and ice, then just overwrite what
+!.. was computed in the relcalc and reicalc subroutines above.
+
+      if (inflglw .ge. 3) then
+         do k = kts, kte
+            reliq(ncol,k) = recloud1d(ncol,k)
+         end do
+      endif
+#if (EM_CORE==1) 
+      if (iceflglw .ge. 4) then
+#else
+      if (iceflglw .ge. 3) then    !BSF: was .ge. 4
+#endif
+
+         do k = kts, kte
+            reice(ncol,k) = reice1d(ncol,k)
+         end do
+      endif
+
 ! Limit upper bound of reice for Fu ice parameterization and convert
 ! from effective radius to generalized effective size (*1.0315; Fu, 1996)
             if (iceflglw .eq. 3) then
@@ -12064,6 +12420,24 @@ CONTAINS
                   reice(ncol,k) = min(140.0,reice(ncol,k))
                end do
             endif
+!if CAMMGMP is used, use output from CAMMGMP
+            if(is_CAMMGMP_used) then
+               do k = kts, kte
+                  if ( qi1d(k) .gt. 1.e-20 .or. qs1d(k) .gt. 1.e-20) then
+                     reice(ncol,k) = iradius(i,k,j)
+                  else
+                     reice(ncol,k) = 25.
+                  end if
+                  reice(ncol,k) = max(5., min(140.0,reice(ncol,k)))
+                  if ( qc1d(k) .gt. 1.e-20) then
+                     reliq(ncol,k) = lradius(i,k,j)
+                  else
+                     reliq(ncol,k) = 10.
+                  end if
+                  reliq(ncol,k) = max(2.5, min(60.0,reliq(ncol,k)))
+               enddo
+            endif
+
 
 ! Set cloud physical property arrays
             do k = kts, kte
@@ -12072,6 +12446,19 @@ CONTAINS
                rel(ncol,k) = reliq(ncol,k)
                rei(ncol,k) = reice(ncol,k)
             enddo
+
+!Mukul
+            if (inflglw .eq. 5) then
+               do k = kts, kte
+                  cswpth(ncol,k) = csnowp(ncol,k)
+                  res(ncol,k) = resnow1d(ncol,k)
+               end do
+            else
+               do k = kts, kte
+                  cswpth(ncol,k) = 0.
+                  res(ncol,k) = 10.
+               end do
+            endif
 
 ! Zero out cloud optical properties here; not used when passing physical properties
 ! to radiation and taucld is calculated in radiation 
@@ -12089,8 +12476,10 @@ CONTAINS
 
          clwpth(ncol,kte+1) = 0.
          ciwpth(ncol,kte+1) = 0.
+         cswpth(ncol,kte+1) = 0.
          rel(ncol,kte+1) = 10.
          rei(ncol,kte+1) = 10.
+         res(ncol,kte+1) = 10.
          cldfrac(ncol,kte+1) = 0.
          do nb = 1, nbndlw
             taucld(nb,ncol,kte+1) = 0.
@@ -12099,16 +12488,18 @@ CONTAINS
          endif
 
          ! Buffer adjustment. Steven Cavallo December 2010
-	 do k=kte+1,nlayers
-	    clwpth(ncol,k) = 0.
-	    ciwpth(ncol,k) = 0.
-	    rel(ncol,k) = 10.
+         do k=kte+1,nlayers
+            clwpth(ncol,k) = 0.
+            ciwpth(ncol,k) = 0.
+            cswpth(ncol,k) = 0.
+            rel(ncol,k) = 10.
             rei(ncol,k) = 10.
+            res(ncol,k) = 10.
             cldfrac(ncol,k) = 0.
-	    do nb = 1,nbndlw
+            do nb = 1,nbndlw
                taucld(nb,ncol,k) = 0.
             enddo
-	 enddo	 
+         enddo   
 
          iplon = 1
          irng = 0
@@ -12116,8 +12507,8 @@ CONTAINS
 
 ! Sub-column generator for McICA
          call mcica_subcol_lw(iplon, ncol, nlay, icld, permuteseed, irng, play, &
-                       cldfrac, ciwpth, clwpth, rei, rel, taucld, cldfmcl, &
-                       ciwpmcl, clwpmcl, reicmcl, relqmcl, taucmcl)
+                       cldfrac, ciwpth, clwpth, cswpth, rei, rel, res, taucld, cldfmcl, &
+                       ciwpmcl, clwpmcl, cswpmcl, reicmcl, relqmcl, resnmcl, taucmcl)
 
 !--------------------------------------------------------------------------
 ! Aerosol optical depth, single scattering albedo and asymmetry parameter -czhao 03/2010
@@ -12139,7 +12530,7 @@ CONTAINS
       end do
       end do
 
-#ifdef WRF_CHEM
+#if ( WRF_CHEM == 1 )
    IF ( AER_RA_FEEDBACK == 1) then
 !     do nb = 1, nbndlw 
       do k = kts,kte      !wig
@@ -12196,7 +12587,7 @@ CONTAINS
              h2ovmr  ,o3vmr   ,co2vmr  ,ch4vmr  ,n2ovmr  ,o2vmr , &
              cfc11vmr,cfc12vmr,cfc22vmr,ccl4vmr ,emis    , &
              inflglw ,iceflglw,liqflglw,cldfmcl , &
-             taucmcl ,ciwpmcl ,clwpmcl ,reicmcl ,relqmcl , &
+             taucmcl ,ciwpmcl ,clwpmcl ,cswpmcl, reicmcl ,relqmcl ,resnmcl , &
              tauaer  , &
              uflx    ,dflx    ,hr      ,uflxc   ,dflxc,  hrc)
 
@@ -12410,7 +12801,7 @@ CONTAINS
 ! Steven Cavallo.  Added for buffer layer adjustment.   December 2010.
    NLAYERS = kme + nint(p_top*0.01/deltap)- 1 ! Model levels plus new levels.
                                               ! nlayers will subsequently 
-					      ! replace kte+1
+                                              ! replace kte+1
 
 ! Read in absorption coefficients and other data
    IF ( allowed_to_read ) THEN
@@ -14031,7 +14422,7 @@ IMPLICIT NONE
           index = int(t(i,k)-179.)
           index = min(max(index,1),94)
           corr = t(i,k) - int(t(i,k))
-          re(i,k) = retab(index)*(1.-corr)		&
+          re(i,k) = retab(index)*(1.-corr)              &
                +retab(index+1)*corr
           !           re(i,k) = amax1(amin1(re(i,k),30.),10.)
        end do

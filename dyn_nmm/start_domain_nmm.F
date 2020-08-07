@@ -3,7 +3,7 @@
 !#define NO_UPSTREAM_ADVECTION
 !----------------------------------------------------------------------
 !
-#ifdef HWRF
+#if ( HWRF == 1 )
         SUBROUTINE GUESS_COUPLING_TIMESTEP(gridid,DTC)
           USE module_configure
           implicit none
@@ -13,10 +13,10 @@
           character*255 :: message
 
           real :: dt
-          integer :: nphs,movemin
+          integer :: nphs,ntrack
           if(model_config_rec%max_dom>=2) then
              ! Normally, in an HWRF simulation, domain 2 has
-             ! dt*nphs*movemin = coupling timestep
+             ! dt*nphs*ntrack = coupling timestep
              ! So if there is a domain 2, we'll use that to
              ! guess the coupling timestep.
              if(gridid==1) then
@@ -25,7 +25,7 @@
                 ! 2 still has its dt set to the internal WRF default of 2.
                 ! To get domain 2's correct dt, we get domain 1's dt and
                 ! divide by 3
-                call wrf_message('Guessing coupling timestep from d01''s dt/3 and d02''s nphs and movemin...')
+                call wrf_message('Guessing coupling timestep from d01''s dt/3 and d02''s nphs and ntrack...')
                 call model_to_grid_config_rec(1,model_config_rec,config_flags)
                 dt=config_flags%dt/3
                 call model_to_grid_config_rec(2,model_config_rec,config_flags)
@@ -39,13 +39,14 @@
              ! coupling timestep using the
              call wrf_message('Guessing coupling timestep from d01 settings because there is no d02...')
              call model_to_grid_config_rec(1,model_config_rec,config_flags)
+             dt=config_flags%dt
           endif
           nphs=config_flags%nphs
-          movemin=config_flags%movemin
+          ntrack=config_flags%ntrack
 
-          dtc = dt*nphs*movemin
-388       format("dtc=dt*nphs*movemin = ",F0.3,"=",F0.3,"*",I0,"*",I0)
-          write(message,388) dtc,dt,nphs,movemin
+          dtc = dt*nphs*ntrack
+388       format("dtc=dt*nphs*ntrack = ",F0.3,"=",F0.3,"*",I0,"*",I0)
+          write(message,388) dtc,dt,nphs,ntrack
           call wrf_message(message)
         END SUBROUTINE GUESS_COUPLING_TIMESTEP
 #endif
@@ -56,16 +57,22 @@
 !
       SUBROUTINE START_DOMAIN_NMM(GRID, allowed_to_read                &
 !
-#include <dummy_new_args.inc>
+#include "dummy_new_args.inc"
 !
      &           )
 !----------------------------------------------------------------------
 !
+#if ( HWRF == 1 )
+      USE MODULE_CLEAR_HALOS, only: clear_ij_halos
+      USE MODULE_STATS_FOR_MOVE, only: vorttrak_init
+      USE MODULE_SWATH, only: init_swath
+#endif
       USE MODULE_TIMING
-#ifdef HWRF
+#if ( HWRF == 1 )
       USE MODULE_HIFREQ, only : hifreq_open
 #endif
       USE MODULE_DOMAIN
+      USE MODULE_STATE_DESCRIPTION
       USE MODULE_RANDOM, only : srand_grid, rand_grid_r4
       USE MODULE_DRIVER_CONSTANTS
       USE module_model_constants
@@ -86,45 +93,41 @@
       USE MODULE_ADVECTION,    ONLY: ADVE, VAD2, HAD2
       USE MODULE_NONHY_DYNAM,  ONLY: VADZ, HADZ
       USE MODULE_DIFFUSION_NMM,ONLY: HDIFF
-      USE MODULE_BNDRY_COND,   ONLY: BOCOH, BOCOV
       USE MODULE_PHYSICS_INIT
       USE MODULE_GWD
 !     USE MODULE_RA_GFDLETA
 !
       USE MODULE_EXT_INTERNAL
 !
-#ifdef WRF_CHEM
-   USE MODULE_AEROSOLS_SORGAM, ONLY: SUM_PM_SORGAM
-   USE MODULE_GOCART_AEROSOLS, ONLY: SUM_PM_GOCART
-   USE MODULE_MOSAIC_DRIVER, ONLY: SUM_PM_MOSAIC
-#endif
+   USE module_tornado_genesis, only: init_tornado_genesis
+
 !
 !----------------------------------------------------------------------
 !
       IMPLICIT NONE
 !
 !----------------------------------------------------------------------
+   INTERFACE
+      SUBROUTINE med_set_egrid_locs ( parent , nest )
+        use module_domain_type, only: domain
+        type(domain) :: parent,nest
+      END SUBROUTINE med_set_egrid_locs
+   END INTERFACE
 !***
 !***  Arguments
 !***
       TYPE(DOMAIN),INTENT(INOUT) :: GRID
       LOGICAL , INTENT(IN)       :: allowed_to_read
 !
-#include <dummy_new_decl.inc>
+#include "dummy_new_decl.inc"
 !
       TYPE(GRID_CONFIG_REC_TYPE) :: CONFIG_FLAGS
 !
-#ifdef WRF_CHEM
-   REAL        RGASUNIV ! universal gas constant [ J/mol-K ]
-   PARAMETER ( RGASUNIV = 8.314510 )
-#endif
 !
 !***
 !***  LOCAL DATA
 !***
-#ifdef HWRF
-  LOGICAL :: ANAL   !zhang's doing, added for analysis option
-#endif
+  LOGICAL :: ANAL   !added for analysis option
 
   integer(kind=4) :: random_seed
   INTEGER :: parent_id, nestid, max_dom,one
@@ -148,7 +151,7 @@
      &          ,K,K400,KBI,KBI2,KCCO2,KNT,KNTI                         &
      &          ,LB,LRECBC,L                                            &
      &          ,N,NMAP,NRADLH,NRADSH,NREC,NS,RECL,STAT                 &
-     &          ,STEPBL,STEPCU,STEPRA
+     &          ,STEPBL,STEPCU,STEPRA, KFE,KFS
 !
       INTEGER :: MY_E,MY_N,MY_S,MY_W                                    &
      &          ,MY_NE,MY_NW,MY_SE,MY_SW,MYI,MYJ,NPE
@@ -166,13 +169,13 @@
 !
 !!!   REAL :: BLDT,CWML,EXNSFC,G_INV,PLYR,PSFC,ROG,SFCZ,THSIJ,TL
       REAL :: CWML,EXNSFC,G_INV,PLYR,PSURF,ROG,SFCZ,THSIJ,TL,ZOQING
-      REAL :: TEND
-#ifdef HWRF
+      REAL :: TEND, TEMPDX,TEMPDY
+#if ( HWRF == 1 )
 !zhang's doing 
       REAL :: TSTART
 !zhang's doing ends
 #endif
-#ifdef HWRF
+#if ( HWRF == 1 )
 !     gopal's doing for the moving nest (MSLP computation)
 !-----------------------------------------------------------------------------------------------------
       REAL, PARAMETER                                       :: LAPSR=6.5E-3, GI=1./G,D608=0.608
@@ -211,16 +214,19 @@
       REAL,ALLOCATABLE,DIMENSION(:,:,:) :: ZINT,RRI,CONVFAC,ZMID
       REAL,ALLOCATABLE,DIMENSION(:,:,:) :: T_TRANS,PINT_TRANS
       REAL,ALLOCATABLE,DIMENSION(:,:,:) :: CLDFRA_TRANS
-#ifndef WRF_CHEM
+      REAL,DIMENSION(:,:,:,:),ALLOCATABLE :: SCALAR_TRANS
       REAL,ALLOCATABLE,DIMENSION(:,:,:) :: CLDFRA_OLD
-#endif
+!..Need to fill special height var for setting up initial condition.  G. Thompson
+      REAL,ALLOCATABLE,DIMENSION(:,:,:) :: z_at_q
+
 #if 0
       REAL,ALLOCATABLE,DIMENSION(:,:,:) :: w0avg
 #endif
       LOGICAL :: E_BDY,N_BDY,S_BDY,W_BDY,WARM_RAIN,ADV_MOIST_COND
       LOGICAL :: START_OF_SIMULATION
-      LOGICAL :: LRESTART
+      LOGICAL :: LRESTART, nestmove
       LOGICAL :: ETAMP_Regional, ICE1_indx, ICE2_indx
+      LOGICAL :: IS_CAMMGMP_USED=.FALSE.
 
 
       integer :: jam,retval
@@ -231,14 +237,19 @@
       integer :: i_t=096,j_t=195,n_t=11
       integer :: i_u=49,j_u=475,n_u=07
       integer :: i_v=49,j_v=475,n_v=07
-      integer :: num_ozmixm, num_aerosolc
+      integer :: num_aerosolc
       real :: cen_lat,cen_lon,dtphs   ! GWD
-      integer :: num_urban_layers
+      integer :: num_urban_layers,num_urban_hi
 !Rogers GMT
       INTEGER :: hr, mn, sec, ms, rc
       TYPE(WRFU_Time) :: currentTime
 
       INTEGER :: interval_seconds, restart_interval
+
+#if ( HWRF == 1 )
+      REAL :: xshift,xfar,yfar,dfar,close2edge
+      REAL :: fedge,fmid,fdiff
+#endif
 
 ! z0base new
  
@@ -254,14 +265,16 @@
 !
 !----------------------------------------------------------------------
 !#define COPY_IN
-!#include <scalar_derefs.inc>
+!#include "scalar_derefs.inc"
 !----------------------------------------------------------------------
 !**********************************************************************
 !----------------------------------------------------------------------
 !
+
       call start_timing
 
-#ifdef HWRF
+#if ( HWRF == 1 )
+      call clear_ij_halos(grid,config_flags%halo_debug)
       if(grid%id==3) then
          grid%force_sst=1
       else
@@ -281,7 +294,7 @@
       KTS=KPS
       KTE=KPE
 
-#ifdef HWRF
+#if ( HWRF == 1 )
       call guess_coupling_timestep(grid%id,grid%guessdtc)
       grid%dtc=0
 #endif
@@ -290,12 +303,60 @@
      &                             ,config_flags)
 !
         RESTRT=config_flags%restart
-#ifdef HWRF
-!zhang's doing added for analysis option
-        ANAL=config_flags%analysis                ! gopal's doing
-!zhang's doing ends
+        ANAL=config_flags%analysis                
+        nestmove=RESTRT .and. .not. allowed_to_read
+
+#if ( HWRF == 1 )
+! Sam's doing for hour 0 & 6 nest movement safeguards
+        grid%nomove_freq_hr=config_flags%nomove_freq
 #endif
 
+      ! Recalculate grid bounds, regardless of reason for
+      ! start_domain_nmm call, or version of NMM:
+      has_parent: if(grid%id /= 1) then ! NOTE REQUIREMENT: MOAD IS GRID 1!!
+         ! Nest gets dx & dy from parent and grid ratio.
+3302     format('Grid ',I0,' calculating west/south bounds relative to parent grid ',I0)
+         write(message,3302) grid%id, grid%parents(1)%ptr%id
+         call wrf_debug(2,message)
+         tempdx=grid%parents(1)%ptr%dx/grid%parent_grid_ratio
+         tempdy=grid%parents(1)%ptr%dy/grid%parent_grid_ratio
+         grid%wbd0var = grid%parents(1)%ptr%wbd0var + (grid%i_parent_start-1)*2.*grid%parents(1)%ptr%dx + mod(grid%j_parent_start+1,2)*grid%parents(1)%ptr%dx
+         grid%sbd0var = grid%parents(1)%ptr%sbd0var + (grid%j_parent_start-1)*grid%parents(1)%ptr%dy
+3303     format('Parent wbd0=',F0.3,' sbd0=',F0.3,' i_parent_start=',I0,' j_parent_start=',I0)
+         write(message,3303) grid%parents(1)%ptr%wbd0var, &
+              grid%parents(1)%ptr%sbd0var, grid%i_parent_start,grid%j_parent_start
+         call wrf_debug(2,message)
+      else
+         ! MOAD gets dx & dy from namelist.
+3305     format('Grid ',I0,' calculating west/south bounds as MOAD')
+         write(message,3305) grid%id
+         call wrf_debug(2,message)
+         call nl_get_dx(grid%id,tempdx)
+         call nl_get_dy(grid%id,tempdy)
+         grid%wbd0var = -(IDE-2)*tempdx
+         grid%sbd0var = -((JDE-1)/2)*tempdy
+#if ! ( NMM_NEST == 1 )
+         ! When NMM is compiled without nesting support, we need to
+         ! update the bound metadata here:
+         grid%wbd0 = grid%wbd0var
+         grid%sbd0 = grid%sbd0var
+#endif
+      endif has_parent
+      if(tempdx<1e-5 .or. tempdy<1e-5) then
+         ! Should never reach here unless someone adds a bug to NMM.
+         ! The meaning of grid%dx varies during nest initialization
+         ! (sometimes it is MOAD dx, sometimes nest dx), so this check
+         ! is here just in case someone screws up the code later on.
+         write(message,1045) tempdx,tempdy
+         call wrf_message('WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING ')
+         call wrf_message('Warning: dx or dy are invalid after parent calculation or namelist check.')
+         call wrf_message(message)
+         call wrf_message('WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING ')
+1045     format('Must be >1e-5.  dx=',F0.7,' dy=',F0.7,'.  Grid bounds will be wrong.')
+      endif
+      write(message,3011) grid%id,tempdx,tempdy,grid%wbd0var,grid%sbd0var
+      call wrf_debug(2,message)
+3011  format('Grid ',I0,': dx=',F0.3,' dy=',F0.3,' wbd0=',F0.3,' sbd0=',F0.3)
 #if 1
       IF(IME>NMM_MAX_DIM )THEN
         WRITE(wrf_err_message,*)                                       &
@@ -342,12 +403,6 @@
          CALL WRF_ERROR_FATAL(wrf_err_message)
       END IF
 
-#if (HWRF==1)
-      if(grid%vortex_tracker<1 .or. grid%vortex_tracker>3) then
-         write(wrf_err_message,*)' domain ',grid%id,' has an invalid value ',grid%vortex_tracker,' for grid%vortex_tracker.  It must be 1, 2 or 3.'
-      endif
-#endif
-      
 !!!!!!tlb
 !!!! For now, set NPES to 1
       NPES=1
@@ -490,47 +545,63 @@
 !     my_neb(8)=my_nw
 !
       deallocate(itemp)
-#  include <HALO_NMM_INIT_1.inc>
-#  include <HALO_NMM_INIT_2.inc>
-#  include <HALO_NMM_INIT_3.inc>
-#  include <HALO_NMM_INIT_4.inc>
-#  include <HALO_NMM_INIT_5.inc>
-#  include <HALO_NMM_INIT_6.inc>
-#  include <HALO_NMM_INIT_7.inc>
-#  include <HALO_NMM_INIT_8.inc>
-#  include <HALO_NMM_INIT_9.inc>
-#  include <HALO_NMM_INIT_10.inc>
-#  include <HALO_NMM_INIT_11.inc>
-#  include <HALO_NMM_INIT_12.inc>
-#  include <HALO_NMM_INIT_13.inc>
-#  include <HALO_NMM_INIT_14.inc>
-#  include <HALO_NMM_INIT_15.inc>
-#  include <HALO_NMM_INIT_16.inc>
-#  include <HALO_NMM_INIT_17.inc>
-#  include <HALO_NMM_INIT_18.inc>
-#  include <HALO_NMM_INIT_19.inc>
-#  include <HALO_NMM_INIT_20.inc>
-#  include <HALO_NMM_INIT_21.inc>
-#  include <HALO_NMM_INIT_22.inc>
-#  include <HALO_NMM_INIT_23.inc>
-#  include <HALO_NMM_INIT_24.inc>
-#  include <HALO_NMM_INIT_25.inc>
-#  include <HALO_NMM_INIT_26.inc>
-#  include <HALO_NMM_INIT_27.inc>
-#  include <HALO_NMM_INIT_28.inc>
-#  include <HALO_NMM_INIT_29.inc>
-#  include <HALO_NMM_INIT_30.inc>
-#  include <HALO_NMM_INIT_31.inc>
-#  include <HALO_NMM_INIT_32.inc>
-#  include <HALO_NMM_INIT_33.inc>
-#  include <HALO_NMM_INIT_34.inc>
-#  include <HALO_NMM_INIT_35.inc>
-#  include <HALO_NMM_INIT_36.inc>
-#  include <HALO_NMM_INIT_37.inc>
-#  include <HALO_NMM_INIT_38.inc>
-#  include <HALO_NMM_INIT_39.inc>
+#  include "HALO_NMM_INIT_1.inc"
+#  include "HALO_NMM_INIT_2.inc"
+#  include "HALO_NMM_INIT_3.inc"
+#  include "HALO_NMM_INIT_4.inc"
+#  include "HALO_NMM_INIT_5.inc"
+#  include "HALO_NMM_INIT_6.inc"
+#  include "HALO_NMM_INIT_7.inc"
+#  include "HALO_NMM_INIT_8.inc"
+#  include "HALO_NMM_INIT_9.inc"
+#  include "HALO_NMM_INIT_10.inc"
+#  include "HALO_NMM_INIT_11.inc"
+#  include "HALO_NMM_INIT_12.inc"
+#  include "HALO_NMM_INIT_13.inc"
+#  include "HALO_NMM_INIT_14.inc"
+#  include "HALO_NMM_INIT_15.inc"
+#  include "HALO_NMM_INIT_16.inc"
+#  include "HALO_NMM_INIT_17.inc"
+#  include "HALO_NMM_INIT_18.inc"
+#  include "HALO_NMM_INIT_19.inc"
+#  include "HALO_NMM_INIT_20.inc"
+#  include "HALO_NMM_INIT_21.inc"
+#  include "HALO_NMM_INIT_22.inc"
+#  include "HALO_NMM_INIT_23.inc"
+#  include "HALO_NMM_INIT_24.inc"
+#  include "HALO_NMM_INIT_25.inc"
+#  include "HALO_NMM_INIT_26.inc"
+#  include "HALO_NMM_INIT_27.inc"
+#  include "HALO_NMM_INIT_28.inc"
+#  include "HALO_NMM_INIT_29.inc"
+#  include "HALO_NMM_INIT_30.inc"
+#  include "HALO_NMM_INIT_31.inc"
+#  include "HALO_NMM_INIT_32.inc"
+#  include "HALO_NMM_INIT_33.inc"
+#  include "HALO_NMM_INIT_34.inc"
+#  include "HALO_NMM_INIT_35.inc"
+#  include "HALO_NMM_INIT_36.inc"
+#  include "HALO_NMM_INIT_37.inc"
+#  include "HALO_NMM_INIT_38.inc"
+#  include "HALO_NMM_INIT_39.inc"
 #endif
 !
+      if((allowed_to_read .and. .not. restrt) .or. anal) then
+         call wrf_message("Fill REFL_10CM with -35 dBZ")
+         if(size(grid%refl_10cm,1)*size(grid%refl_10cm,3)>1) then
+            do J=JPS,JPE
+               do K=KPS,KPE
+                  do I=IPS,IPE
+                     grid%refl_10cm(i,k,j)=-35.0
+                  enddo
+               enddo
+               do I=IPS,IPE
+                  grid%refd_max(i,j)=-35.0
+               enddo
+            enddo
+         endif
+      endif
+         
       DO J=MYJS_P4,MYJE_P4
         grid%iheg(J)=MOD(J+1,2)
         grid%ihwg(J)=grid%iheg(J)-1
@@ -550,8 +621,10 @@
 !
       IFS=IPS
       JFS=JPS
+      KFS=KPS
       JFE=MIN(JPE,JDE-1)
       IFE=MIN(IPE,IDE-1)
+      KFE=MIN(KPE,KDE-1)
 
       if((allowed_to_read.and..not.(restrt)) .or. .not.allowed_to_read) then
          randif: IF(in_use_for_config(grid%id,'random'))THEN
@@ -580,10 +653,13 @@
          endif randif
       endif
 ! Begin HWRF update for high-frequency output
-#ifdef HWRF
+#if ( HWRF == 1 )
       if(allowed_to_read .and. config_flags%high_freq) then
         if(grid%id==config_flags%high_dom) then
+           ! Open HTCF LUN:
            call HIFREQ_OPEN(grid,config_flags)
+           ! Open per-nest-move ATCF LUN:
+           call HIFREQ_OPEN(grid,config_flags,atcf=.true.)
         elseif(config_flags%high_dom==-99) then
           nestless=.true.
            CALL nl_get_max_dom( 1, max_dom )
@@ -599,18 +675,43 @@
               endif
            enddo nestdo
            if(nestless) then
-              call HIFREQ_OPEN(grid,config_flags)
+              ! Open HTCF LUN:
+               call HIFREQ_OPEN(grid,config_flags)
+              ! Open per-nest-move ATCF LUN:
+              call HIFREQ_OPEN(grid,config_flags,atcf=.true.)
            endif
         else
            write(message,'("Domain ",I0," does not have hifreq out.")') grid%id
         endif
       else
-        write(message,'("Domain ",I0," is not being initialized.")') grid%id
+          write(message,'("Domain ",I0," is not being initialized.")') grid%id
       endif
 ! end of high-freq output
 #endif
-!
-#ifdef HWRF
+
+! Begin Sam Trahan's doing for Tornado Genesis (SPC) products
+      if(anal .or. (allowed_to_read .and. .not. restrt)) then
+         call init_tornado_genesis(grid,config_flags)
+      endif
+! End Sam Trahan's doing for Tornado Genesis (SPC) products
+
+#if ( HWRF == 1 )
+! Begin Sam Trahan's doing for vortex tracker initialization
+    IF ( program_name(1:8) .NE. "REAL_NMM" ) THEN
+         call VORTTRAK_INIT(grid,config_flags,       &
+                            (allowed_to_read .and. .not. restrt), &
+                            IDS,IDE,JDS,JDE,KDS,KDE, &
+                            IMS,IME,JMS,JME,KMS,KME, &
+                            ITS,ITE,JTS,JTE,KTS,KTE)
+         call init_swath(grid, config_flags, &
+              (allowed_to_read .and. .not. restrt) )
+    ENDIF
+    IF(ANAL .or. allowed_to_read) THEN
+       grid%update_interest=.true.
+    ENDIF
+! End Sam Trahan's doing for vortex tracker initialization
+#endif
+#if ( HWRF == 1 )
 !zhang's doing
   IF((.NOT.RESTRT .AND. .NOT.ANAL) .OR. .NOT.allowed_to_read)THEN
 !end of zhang's doing
@@ -666,7 +767,7 @@
           APEM1=(1.E5/PM1)**CAPA
 
         IF(grid%nmm_tsk(I,J)>=200.)THEN         ! have a specific skin temp, use it
-#ifdef HWRF
+#if ( HWRF == 1 )
           grid%ths(I,J)=grid%nmm_tsk(I,J)*(1.+P608*grid%q(I,J,KTS+1))*APEM1
           TSFCK=grid%nmm_tsk(I,J)*(1.+P608*grid%q(I,J,KTS+1))
 #else
@@ -675,7 +776,7 @@
 #endif
 
 	ELSE                               ! use lowest layer as a proxy
-#ifdef HWRF
+#if ( HWRF == 1 )
           grid%ths(I,J)=grid%t(I,J,KTS)*(1.+P608*grid%q(I,J,KTS+1))*APEM1
           TSFCK=grid%t(I,J,KTS)*(1.+P608*grid%q(I,J,KTS+1))
 #else
@@ -709,7 +810,7 @@
 !***
 !***  INITIALIZE CLOUD FIELDS
 !***
-      IF (MAXVAL(grid%cwm) .gt. 0. .and. MAXVAL(grid%cwm) .lt. 1.) then
+      IF (MAXVAL(grid%cwm(ips:ipe,jps:jpe,:)) .gt. 0. .and. MAXVAL(grid%cwm(ips:ipe,jps:jpe,:)) .lt. 1.) then
         CALL wrf_message('appear to have grid%cwm values...do not zero')
       ELSE
         IF(allowed_to_read)THEN       ! This is gopal's inclusion for moving nest
@@ -774,6 +875,16 @@
         ENDDO
         ENDDO
       ENDIF
+      if(allowed_to_read .and. (anal .or. .not. restrt)) then
+         call wrf_debug(1,'Initialize DKU3D and DKT3D to 0.')
+         do j=jfs,jfe
+            do i=ifs,ife
+               grid%dku3d(i,j,:) = 0
+               grid%dkt3d(i,j,:) = 0
+            enddo
+         enddo
+      endif
+
 !***  
 !***  INITIALIZE TURBULENT KINETIC ENERGY (TKE) TO A SMALL
 !***  VALUE (EPSQ2) ABOVE GROUND.  SET TKE TO ZERO IN THE
@@ -782,7 +893,7 @@
 !***
 !***EROGERS: add check for realistic values of grid%q2
 !
-      IF (MAXVAL(grid%q2) .gt. epsq2 .and. MAXVAL(grid%q2) .lt. 200.) then
+      IF (MAXVAL(grid%q2(ips:ipe,jps:jpe,:)) .gt. epsq2 .and. MAXVAL(grid%q2(ips:ipe,jps:jpe,:)) .lt. 200.) then
         CALL wrf_message('appear to have grid%q2 values...do not zero')
       ELSE
       IF(allowed_to_read)THEN       ! This is gopal's inclusion for moving nest
@@ -790,7 +901,7 @@
         DO K=KPS,KPE-1
         DO J=JFS,JFE
         DO I=IFS,IFE
-#ifdef HWRF
+#if ( HWRF == 1 )
           grid%q2(I,J,K)=0.
 #else
           grid%q2(I,J,K)=grid%hbm2(I,J)*EPSQ2
@@ -802,7 +913,7 @@
         DO J=JFS,JFE
         DO I=IFS,IFE
           grid%q2(I,J,LM)    = 0.
-#ifdef HWRF
+#if ( HWRF == 1 )
           grid%q2(I,J,KTE-2)= 0.
           grid%q2(I,J,KTE-1)= 0.
 #else
@@ -865,7 +976,7 @@
 
       TSPH=3600./GRID%DT ! needed?
       grid%nphs0=GRID%NPHS
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang's doing
       tstart = grid%TSTART
 !zhang's doing ends
@@ -903,7 +1014,7 @@
       grid%nrdsw  = INT(grid%TRDSW *TSPH+0.5)
       grid%nrdlw  = INT(grid%TRDLW *TSPH+0.5)
       grid%nsrfc  = INT(grid%TSRFC *TSPH+0.5)
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang's dong for analysis option:
       grid%NCNVC0  = grid%NCNVC
       grid%NPHS0   = grid%NPHS
@@ -1233,7 +1344,7 @@
 !***
 !*** SET ZERO-VALUE FOR SOME OUTPUT DIAGNOSTIC ARRAYS
 !***
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang'sdoing       IF(NSTART.EQ.0)THEN
       IF(NSTART.EQ.0 .or. .not.allowed_to_read )THEN
 !zhang's doing ends
@@ -1384,7 +1495,7 @@
 !***
 !***  TRY A SIMPLE LINEAR INTERP TO GET 2/10 M VALUES
 !***
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang's doing
         IF(.NOT.RESTRT .OR. .NOT.allowed_to_read) then
         grid%PDSL(I,J)=grid%PD(I,J)*grid%RES(I,J)
@@ -1413,7 +1524,7 @@
           FAC2=0.
         ENDIF
 !
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang's doing
         IF(.NOT.RESTRT .OR. .NOT.allowed_to_read)THEN
 !end of zhang's doing
@@ -1422,7 +1533,7 @@
 #endif
           grid%th10(I,J)=FAC2*grid%ths(I,J)+FAC1*THLM
           grid%q10(I,J)=FAC2*grid%qsh(I,J)+FAC1*QLM
-#ifdef HWRF
+#if ( HWRF == 1 )
           IF(grid%sm(I,J).LT.0.5)THEN
               grid%u10(I,J)=ULM*(log(10./grid%z0(I,J))/log(DZLM/grid%z0(I,J)))      ! this is all Qingfu's doing
               grid%v10(I,J)=VLM*(log(10./grid%z0(I,J))/log(DZLM/grid%z0(I,J)))
@@ -1465,7 +1576,7 @@
             FAC2=0.2
           ENDIF
 
-#ifdef HWRF
+#if ( HWRF == 1 )
           grid%tshltr(I,J)=0.2*grid%ths(I,J)+0.8*THLM
           grid%qshltr(I,J)=0.2*grid%qsh(I,J)+0.8*QLM
 #else
@@ -1491,7 +1602,7 @@
 !***  INITIALIZE TAU-1 VALUES FOR ADAMS-BASHFORTH 
 !----------------------------------------------------------------------
 !
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang's doing
       IF(.NOT.RESTRT .OR. .NOT.allowed_to_read)THEN !zhang's doing
 #else
@@ -1517,14 +1628,20 @@
       IF((.NOT.RESTRT.OR.NEST).AND. allowed_to_read)THEN ! This is gopal's inclusion for moving nest
         DO K=KPS,KPE
           DO J=JFS,JFE
-          DO I=IFS,IFE
-            grid%dwdt(I,J,K)=1.
-          ENDDO
+             if(.not. grid%keepnh .or. .not. nestmove &
+                    .or. j<7 .or. j+6>jfe) then
+                DO I=IFS,IFE
+                   grid%dwdt(I,J,K)=1.
+                ENDDO
+             else
+                grid%dwdt(1:3,j,k)=1.
+                grid%dwdt(ife-2:ife,j,k)=1.
+             endif
           ENDDO
         ENDDO
       ENDIF
 !***
-#ifdef HWRF
+#if ( HWRF == 1 )
       IF(.NOT.RESTRT .OR. .NOT.allowed_to_read) THEN !zhang's doing
 #endif
       IF(GRID%SIGMA==1)THEN
@@ -1540,7 +1657,7 @@
         ENDDO
         ENDDO
       ENDIF
-#ifdef HWRF
+#if ( HWRF == 1 )
       ENDIF !zhang's doing
 #endif
 !
@@ -1553,27 +1670,50 @@
         CALL wrf_debug( 0, TRIM(wrf_err_message) )
       WRITE( wrf_err_message, * )' grid%pdtop=',grid%pdtop,' grid%pt=',grid%pt
         CALL wrf_debug( 0, TRIM(wrf_err_message) )
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang's doing
         IF(.NOT.RESTRT.OR.NEST .OR. .NOT.allowed_to_read)THEN
 !end of zhang's doing
 #else
       IF(.NOT.RESTRT.OR.NEST)THEN
 #endif
+#ifdef IDEAL_NMM_TC
+        do k=kps,kpe
+          do j=jfs,jfe
+           do i=ifs,ife
+             grid%f(I,J)=0.5*GRID%DT*3.15656e-5 ! IDEAL CASE 0.5*DT*f (and not f!)
+           enddo
+          enddo
+        enddo
+#endif
+        if(nestmove) then
+           if(.not.grid%keepnh) then
+              call wrf_message('Discarding non-hydrostatic state at nest move.  Set keepnh=T to retain the state.')
+           else
+              call wrf_message('Retaining non-hydrostatic state at nest move except at nest boundaries.')
+           endif
+        endif
+
         DO K=KPS,KPE
         DO J=JFS,JFE
-        DO I=IFS,IFE
-          grid%pint(I,J,K)=grid%eta1(K)*grid%pdtop+grid%eta2(K)*grid%pdsl(I,J)+grid%pt
-          grid%z(I,J,K)=grid%pint(I,J,K)
-          grid%w(I,J,K)=0.
-#ifdef IDEAL_NMM_TC
-             grid%f(I,J)=0.5*GRID%DT*3.15656e-5 ! IDEAL CASE 0.5*DT*f (and not f!)
-#endif
-        ENDDO
+           if(.not.nestmove .or. .not. grid%keepnh .or. j<7 .or. j+6>=jfe) then
+              DO I=IFS,IFE
+                 grid%pint(I,J,K)=grid%eta1(K)*grid%pdtop+grid%eta2(K)*grid%pdsl(I,J)+grid%pt
+                 grid%z(I,J,K)=grid%pint(I,J,K)
+                 grid%w(I,J,K)=0.
+              ENDDO
+           else
+              grid%pint(1:3,J,K)=grid%eta1(K)*grid%pdtop+grid%eta2(K)*grid%pdsl(I,J)+grid%pt
+              grid%z(1:3,J,K)=grid%pint(I,J,K)
+              grid%w(1:3,J,K)=0.
+              grid%pint(ife-2:ife,J,K)=grid%eta1(K)*grid%pdtop+grid%eta2(K)*grid%pdsl(I,J)+grid%pt
+              grid%z(ife-2:ife,J,K)=grid%pint(I,J,K)
+              grid%w(ife-2:ife,J,K)=0.
+           endif
         ENDDO
         ENDDO
       ENDIF
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang's doing
       IF(.NOT.RESTRT.OR.NEST .OR. .NOT.allowed_to_read)THEN
 #endif
@@ -1586,26 +1726,20 @@
         ENDDO
         ENDDO
         ENDDO
-#ifdef HWRF
+#if ( HWRF == 1 )
       ENDIF    !zhang 
 #endif
 
-#ifdef HWRF
+#if ( HWRF == 1 )
       hwrfx_mslp: if(grid%vortex_tracker /= 1) then
-! XUEJIN's doing
-! add to output MSLP at the initial time
-!
-!    COMPUTATION OF MSLP         ! This is gopal's doing
-!
-
-
      DO J=JFS,JFE
       DO I=IFS,IFE
-         grid%Z(I,J,1)=grid%FIS(I,J)*GI
+         grid%Z(I,J,KFS)=grid%FIS(I,J)*GI
       ENDDO
      ENDDO
 
-     DO K=KPS,2
+     ! Z now correctly calculated after nest move.  Needed by membrane MSLP.
+     DO K=KFS,KFE
       DO J=JFS,JFE
        DO I=IFS,IFE
           APELP      = (grid%PINT(I,J,K+1)+grid%PINT(I,J,K))
@@ -1616,22 +1750,20 @@
       ENDDO
      ENDDO
 
-     grid%MSLP=-9999.99
-     DO J=JFS,JFE
-      DO I=IFS,IFE
-         SFCT      = grid%T(I,J,1)*(1.+D608*grid%Q(I,J,1)) + LAPSR*(grid%Z(I,J,1)+grid%Z(I,J,2))*0.5
-         A         = LAPSR*grid%Z(I,J,1)/SFCT
-         grid%MSLP(I,J) = grid%PINT(I,J,1)*(1-A)**COEF2
+     DO K=KFS,KFE
+      DO J=JFS,JFE
+       DO I=IFS,IFE
+          grid%Z(i,j,k)=(grid%Z(i,j,k)+grid%Z(i,j,k+1))*0.5
+       ENDDO
       ENDDO
      ENDDO
 
-! SET BACK Z AS IN ORIGINAL CODE
-
-     DO K=KPS,KPE
-      DO J=JFS,JFE
-       DO I=IFS,IFE
-         grid%Z(I,J,K)=grid%PINT(I,J,K)
-       ENDDO
+     grid%MSLP=-9999.99
+     DO J=JFS,JFE
+      DO I=IFS,IFE
+         SFCT      = grid%T(I,J,1)*(1.+D608*grid%Q(I,J,1)) + LAPSR*grid%Z(I,J,1)
+         A         = LAPSR*grid%FIS(i,j)*gi/SFCT
+         grid%MSLP(I,J) = grid%PINT(I,J,1)*(1-A)**COEF2
       ENDDO
      ENDDO
 
@@ -1773,15 +1905,15 @@
       ALLOCATE(RTHRATEN(IMS:IME,KMS:KME,JMS:JME),STAT=I)    ; RTHRATEN  = 0.
       ALLOCATE(RTHRATENLW(IMS:IME,KMS:KME,JMS:JME),STAT=I)  ; RTHRATENLW = 0.
       ALLOCATE(RTHRATENSW(IMS:IME,KMS:KME,JMS:JME),STAT=I)  ; RTHRATENSW = 0.
-      ALLOCATE(ZINT(IMS:IME,KMS:KME,JMS:JME),STAT=I)  ; ZINT = 0.
-      ALLOCATE(CONVFAC(IMS:IME,KMS:KME,JMS:JME),STAT=I)  ; CONVFAC = 0.
+      ALLOCATE(ZINT(IMS:IME,KMS:KME,JMS:JME),STAT=I)        ; ZINT = 0.
+      ALLOCATE(CONVFAC(IMS:IME,KMS:KME,JMS:JME),STAT=I)     ; CONVFAC = 0.
       ALLOCATE(PINT_TRANS(IMS:IME,KMS:KME,JMS:JME),STAT=I)  ; PINT_TRANS = 0.
-      ALLOCATE(T_TRANS(IMS:IME,KMS:KME,JMS:JME),STAT=I)  ;  T_TRANS = 0.
-      ALLOCATE(RRI(IMS:IME,KMS:KME,JMS:JME),STAT=I)  ;  RRI = 0.
-      ALLOCATE(CLDFRA_TRANS(IMS:IME,KMS:KME,JMS:JME),STAT=I)  ; CLDFRA_TRANS = 0.
-#ifndef WRF_CHEM      
+      ALLOCATE(T_TRANS(IMS:IME,KMS:KME,JMS:JME),STAT=I)     ;  T_TRANS = 0.
+      ALLOCATE(RRI(IMS:IME,KMS:KME,JMS:JME),STAT=I)         ;  RRI = 0.
+      ALLOCATE(CLDFRA_TRANS(IMS:IME,KMS:KME,JMS:JME),STAT=I); CLDFRA_TRANS = 0.
+      ALLOCATE(SCALAR_TRANS(IMS:IME,KMS:KME,JMS:JME,NUM_SCALAR),STAT=I)
       ALLOCATE(CLDFRA_OLD(IMS:IME,KMS:KME,JMS:JME),STAT=I)  ; CLDFRA_OLD = 0.
-#endif
+      ALLOCATE(Z_AT_Q(IMS:IME,KMS:KME,JMS:JME),STAT=I)      ; z_at_q = 0.
 #if 0
       ALLOCATE(w0avg(IMS:IME,KMS:KME,JMS:JME),STAT=I)       ; w0avg = 0.
 #endif
@@ -1794,11 +1926,24 @@
       GRID%CUDT=GRID%NCNVC*GRID%DT/60.
       GRID%GSMDT=GRID%NPHS*GRID%DT/60.
 !
+! translate scalar(i,j,k,n) to scalar_trans(i,k,j,n)
+        DO N=1,NUM_SCALAR
+!$omp parallel do                                                       &
+!$omp& private(i,j,k)
+          DO K=KMS,KME
+          DO J=JMS,JME
+          DO I=IMS,IME
+            SCALAR_TRANS(I,K,J,N)=SCALAR(I,J,K,N)
+          ENDDO
+          ENDDO
+          ENDDO
+        ENDDO
+!
       DO J=MYJS,MYJE
       DO I=MYIS,MYIE
         SFCZ=grid%fis(I,J)*G_INV
         ZINT(I,KTS,J)=SFCZ
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang's doing
         IF(.NOT.RESTRT .OR. .NOT.allowed_to_read) then
         grid%PDSL(I,J)=grid%PD(I,J)*grid%RES(I,J)
@@ -1854,7 +1999,7 @@
 !
 !-----------------------------------------------------------------------
 
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang's doing
       if(.NOT.RESTRT .OR. .NOT.allowed_to_read)grid%LU_INDEX=grid%IVGTYP
 !end of zhang's doing
@@ -1873,6 +2018,11 @@
 !
 !***  Always define the quantity grid%z0base
                                                                                                                                               
+4041  format('Bounds: ip=',I0,',',I0,' jp=',I0,',',I0,' myi=',I0,',',I0,&
+             ' myj=',I0,',',I0)
+      write(message,4041) ips,ipe,jps,jpe,myis,myie,myjs,myje
+      call wrf_message(message)
+
       IF(.NOT.RESTRT)THEN
         DO J=MYJS,MYJE
         DO I=MYIS,MYIE
@@ -1888,7 +2038,6 @@
       ENDIF
 !
 ! when allocating CAM radiation 4d arrays (ozmixm, aerosolc) these are not needed
-      num_ozmixm=1
       num_aerosolc=1
 
 ! Set GMT, JULDAY, and JULYR outside of phy_init because it is no longer 
@@ -1900,26 +2049,21 @@
       CALL domain_setgmtetc( GRID, START_OF_SIMULATION )
 
       if(restrt) then
-#ifdef HWRF
-!zhang 
-     CALL nl_get_julyr (grid%id, grid%julyr)
-     CALL nl_get_julday (grid%id, grid%julday)
-     CALL nl_get_gmt (grid%id, grid%gmt)
-!zhang end
-#else
         CALL domain_clock_get( grid, current_time=currentTime )
         CALL WRFU_TimeGet( currentTime, YY=grid%julyr, dayOfYear=grid%julday, &
                            H=hr, M=mn, S=sec, MS=ms, rc=rc)
         grid%gmt=hr+real(mn)/60.+real(sec)/3600.+real(ms)/(1000*3600)
         WRITE( wrf_err_message , * ) 'DEBUG start_domain_nmm():  gmt = ',grid%gmt
         CALL wrf_debug( 150, TRIM(wrf_err_message) )
-#endif
       endif
 
 ! Several arguments are RCONFIG entries in Registry.NMM. Registry no longer
 ! includes these as dummy arguments or declares them.  Access them from 
 ! GRID.  JM 20050819
 #ifndef WRF_NMM_NEST
+    ! NOTE: we always get here for all NMM configurations because the
+    !       #if condition is wrong.  Leaving this as is, just in case
+    !       there was a good reason for it.
       grid%moved = .FALSE.
 #endif
 
@@ -1933,6 +2077,14 @@
          ENDIF
       END IF
 
+      if(allowed_to_read) then
+         call wrf_debug(1,'Set E grid locations for PHY_INIT.')
+         if(grid%id==1) then
+            call med_set_egrid_locs(grid,grid)
+         else
+            call med_set_egrid_locs(grid%parents(1)%ptr,grid)
+         endif
+      end if
       CALL PHY_INIT(GRID%ID,CONFIG_FLAGS,GRID%DT,LRESTART,SFULL,SMID    &
      &             ,grid%pt,TSFC,GRID%RADT,GRID%BLDT,GRID%CUDT,GRID%GSMDT    &
      &             ,grid%DUCUDT, grid%DVCUDT                            &
@@ -1947,6 +2099,11 @@
      &             ,STEPBL,STEPRA,STEPCU                                &
      &             ,grid%w0avg, RAINNC, RAINC, grid%raincv, RAINNCV               &
      &             ,SNOWNC, SNOWNCV, GRAUPELNC, GRAUPELNCV              &
+     &             ,z_at_q, grid%qnwfa2d                                &
+!     &             ,scalar_trans(ims,kms,jms,1),num_scalar              &
+     &             ,scalar_trans,num_scalar              &
+     &             ,grid%re_cloud, grid%re_ice, grid%re_snow            & ! G. Thompson
+     &             ,grid%has_reqc,grid%has_reqi,grid%has_reqs           & ! G. Thompson
      &             ,NCA,GRID%SWRAD_SCAT                                 &
      &             ,grid%cldefi,LOWLYR                                       &
      &             ,grid%mass_flux                                           &
@@ -1955,13 +2112,15 @@
      &             ,GRID%LANDUSE_ISICE, GRID%LANDUSE_LUCATS             &
      &             ,GRID%LANDUSE_LUSEAS, GRID%LANDUSE_ISN               &
      &             ,GRID%LU_STATE                                       &
-     &             ,grid%xlat,grid%xlong,grid%albedo,grid%albbck                            &
+     &             ,grid%hlat,grid%hlon,grid%glat,grid%glon&
+     &             ,grid%albedo,grid%albbck                             &
      &             ,GRID%GMT,GRID%JULYR,GRID%JULDAY                     &
      &             ,GRID%LEVSIZ, NUM_OZMIXM, NUM_AEROSOLC, GRID%PAERLEV &
+     &             ,grid%alevsiz, grid%no_src_types                     &
      &             ,TMN,grid%xland,grid%znt,grid%z0,grid%ustar,grid%mol,grid%pblh,grid%tke_pbl             &
      &             ,grid%exch_h,THC,SNOWC,grid%mavail,HFX,QFX,RAINBL              &
      &             ,grid%stc,grid%sldpth,grid%DZSoil,GRID%NUM_SOIL_LAYERS,WARM_RAIN           &
-     &             ,ADV_MOIST_COND                                      &
+     &             ,ADV_MOIST_COND,IS_CAMMGMP_USED                      &
      &             ,grid%apr_gr,grid%apr_w,grid%apr_mc,grid%apr_st,grid%apr_as                   &
      &             ,grid%apr_capma,grid%apr_capme,grid%apr_capmi                       &
      &             ,grid%xice,grid%xice,grid%vegfra,grid%snow,grid%canwat,grid%smstav                 &
@@ -1976,7 +2135,7 @@
      &             ,IDS, IDE, JDS, JDE, KDS, KDE                        &
      &             ,IMS, IME, JMS, JME, KMS, KME                        &
      &             ,ITS, ITE, JTS, JTE, KTS, KTE                        &
-     &             ,NUM_URBAN_LAYERS                                    &
+     &             ,NUM_URBAN_LAYERS,NUM_URBAN_HI                       &
      &             ,GRID%RAINCV_A,GRID%RAINCV_B                         &
      &               ,ISNOWXY=grid%ISNOWXY, ZSNSOXY=grid%ZSNSOXY, TSNOXY=grid%TSNOXY,    & ! Optional Noah-MP
      &                SNICEXY=grid%SNICEXY, SNLIQXY=grid%SNLIQXY, TVXY=grid%TVXY,        & ! Optional Noah-MP
@@ -1988,29 +2147,66 @@
      &                WSLAKEXY=grid%WSLAKEXY, ZWTXY=grid%ZWTXY, WAXY=grid%WAXY,          & ! Optional Noah-MP
      &                WTXY=grid%WTXY, LFMASSXY=grid%LFMASSXY, RTMASSXY=grid%RTMASSXY,    & ! Optional Noah-MP
      &                STMASSXY=grid%STMASSXY, WOODXY=grid%WOODXY,                        & ! Optional Noah-MP
+     &                GRAINXY=grid%GRAINXY, GDDXY=grid%GDDXY,                            & ! Optional Noah-MP
      &                STBLCPXY=grid%STBLCPXY, FASTCPXY=grid%FASTCPXY,                    & ! Optional Noah-MP
-     &                XSAIXY=grid%XSAIXY,                                                & ! Optional Noah-MP
-     &                T2MVXY=grid%T2MVXY, T2MBXY=grid%T2MBXY, CHSTARXY=grid%CHSTARXY     & ! Optional Noah-MP
+     &                XSAIXY=grid%XSAIXY,LAI=grid%LAI,                                   & ! Optional Noah-MP
+     &                T2MVXY=grid%T2MVXY, T2MBXY=grid%T2MBXY, CHSTARXY=grid%CHSTARXY,    & ! Optional Noah-MP
+     &                smoiseq=grid%smoiseq, smcwtdxy=grid%smcwtdxy, rechxy=grid%rechxy,   &
+     &                deeprechxy=grid%deeprechxy,                                         &
+     &                lakedepth2d=grid%lakedepth2d,  savedtke12d=grid%savedtke12d,  snowdp2d=grid%snowdp2d,   h2osno2d=grid%h2osno2d,               & !lake
+     &                snl2d= grid%snl2d, t_grnd2d=grid%t_grnd2d, t_lake3d=grid%t_lake3d, lake_icefrac3d=grid%lake_icefrac3d,                        & !lake
+     &                z_lake3d=grid%z_lake3d, dz_lake3d=grid%dz_lake3d, t_soisno3d=grid%t_soisno3d, h2osoi_ice3d=grid%h2osoi_ice3d,                 & !lake
+     &                h2osoi_liq3d=grid%h2osoi_liq3d, h2osoi_vol3d=grid%h2osoi_vol3d, z3d=grid%z3d, dz3d=grid%dz3d,                                 & !lake
+     &                zi3d=grid%zi3d, watsat3d=grid%watsat3d, csol3d=grid%csol3d, tkmg3d=grid%tkmg3d,                                               & !lake
+     &                tkdry3d=grid%tkdry3d, tksatu3d=grid%tksatu3d, lake2d=grid%lake2d,                                                             & !lake
+     &                lakedepth_default=config_flags%lakedepth_default, lake_min_elev=config_flags%lake_min_elev, lake_depth=grid%lake_depth,               & !lake
+     &                lake_depth_flag=grid%LAKE_DEPTH_FLAG, use_lakedepth=grid%use_lakedepth,                                                      & !lake
+     &                sf_surface_mosaic=config_flags%sf_surface_mosaic, mosaic_cat=config_flags%mosaic_cat, nlcat=1,     & ! Noah tiling
+     &                nssl_cccn=config_flags%nssl_cccn,                                 &
+     &                nssl_alphah=config_flags%nssl_alphah, nssl_alphahl=config_flags%nssl_alphahl,    &
+     &                nssl_cnoh=config_flags%nssl_cnoh, nssl_cnohl=config_flags%nssl_cnohl,        &
+     &                nssl_cnor=config_flags%nssl_cnor, nssl_cnos=config_flags%nssl_cnos,         &
+     &                nssl_rho_qh=config_flags%nssl_rho_qh, nssl_rho_qhl=config_flags%nssl_rho_qhl,    &
+     &                nssl_rho_qs=config_flags%nssl_rho_qs,                               &
+     &                nssl_ipelec=config_flags%nssl_ipelec,                               &
+     &                nssl_isaund=config_flags%nssl_isaund,                               & 
+     &                MAXPATCH=1,ccn_conc=config_flags%ccn_conc, & ! CLM
+     &                pin=grid%pin,ozmixm=grid%ozmixm &
      &                )
 
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang's doing
       grid%julyr_rst=grid%julyr_rst
       grid%julday_rst=grid%julday_rst
       grid%gmt_rst=grid%gmt_rst
 !end of zhang's doing
 #endif
+
+!
+! computes ct and ct2 for topo_wind=1 or topo_wind=2
+! NOTE: not yet implemented for NMM: =1.0 will have no effect
+!
+       grid%ctopo=1.
+       grid%ctopo2=1.
+!
+
 !-----------------------------------------------------------------------
 !---- Initialization for gravity wave drag (GWD) & mountain blocking (MB)
 !
-      CALL nl_get_cen_lat(GRID%ID, CEN_LAT)    !-- CEN_LAT in deg
-      CALL nl_get_cen_lon(GRID%ID, CEN_LON)    !-- CEN_LON in deg
-      DTPHS=grid%dt*grid%nphs
-      CALL GWD_init(DTPHS,GRID%DX,GRID%DY,CEN_LAT,CEN_LON,RESTRT        &
+#if (HWRF == 1)
+   IF(grid%gwd_opt .eq. 2 .AND. grid%id .eq. 1 .AND. allowed_to_read) THEN
+#else
+   IF(grid%gwd_opt .eq. 2 ) THEN
+#endif
+        CALL nl_get_cen_lat(GRID%ID, CEN_LAT)    !-- CEN_LAT in deg
+        CALL nl_get_cen_lon(GRID%ID, CEN_LON)    !-- CEN_LON in deg
+        DTPHS=grid%dt*grid%nphs
+        CALL GWD_init(DTPHS,GRID%DX,GRID%DY,CEN_LAT,CEN_LON,RESTRT        &
      &              ,grid%glat,grid%glon,grid%crot,grid%srot,grid%hangl                          &
      &              ,IDS,IDE,JDS,JDE,KDS,KDE                            &
      &              ,IMS,IME,JMS,JME,KMS,KME                            &
      &              ,ITS,ITE,JTS,JTE,KTS,KTE )
+      ENDIF
       IF(.NOT.RESTRT)THEN
         DO J=MYJS,MYJE
         DO I=MYIS,MYIE
@@ -2022,7 +2218,7 @@
 
 !-----------------------------------------------------------------------
 !
-#ifdef HWRF
+#if ( HWRF == 1 )
       IF(NSTART.EQ.0 .or. .not.allowed_to_read )THEN
 #else
        IF(NSTART==0)THEN
@@ -2047,12 +2243,12 @@
 !
 !
 !mp replace F*_PHY with values defined in module_initialize_real.F?
-#ifdef HWRF
+#if ( HWRF == 1 )
       IF (.NOT. RESTRT .and. ALLOWED_TO_READ) THEN   !zhang
         moist = 0.0
-        grid%f_ice = grid%f_ice_phy
-        grid%f_rimef = grid%f_rimef_phy
-        grid%f_rain = grid%f_rain_phy
+        if(size(grid%f_ice)>1) grid%f_ice = grid%f_ice_phy
+        if(size(grid%f_rimef)>1) grid%f_rimef = grid%f_rimef_phy
+        if(size(grid%f_rain)>1) grid%f_rain = grid%f_rain_phy
       ENDIF                  !zhang
 #endif
 
@@ -2074,7 +2270,7 @@
 ! array (if any hydrometeors found and non-zero from initialization     
 ! package).  Then, determine fractions ice and rain from species.       
      
-        IF (.not. (MAXVAL(grid%cwm).gt.0. .and. MAXVAL(grid%cwm).lt.1.) ) then    
+        IF (.not. (MAXVAL(grid%cwm(ips:ipe,jps:jpe,:)).gt.0. .and. MAXVAL(grid%cwm(ips:ipe,jps:jpe,:)).lt.1.) ) then    
           do i_m = 2, num_moist
           if (i_m.ne.p_qv) &
      &       CALL wrf_message(' summing moist(:,:,:,i_m) into cwm array')
@@ -2089,9 +2285,11 @@
           enddo
           enddo
 
-          IF (.not. ( (maxval(grid%f_ice)+maxval(grid%f_rain)) .gt. EPSQ) ) THEN
+          IF (size(grid%f_ice)>1 .and. size(grid%f_rain)>1) then
+           IF( .not. ( (maxval(grid%f_ice(ips:ipe,:,jps:jpe)) &
+               +maxval(grid%f_rain(ips:ipe,:,jps:jpe))) .gt. EPSQ) ) THEN
             ETAMP_Regional=.FALSE.    !-- Regional NAM or HRW (Ferrier) microphysics
-            if (model_config_rec%mp_physics(grid%id).EQ.ETAMPOLD .OR.          &
+            if (model_config_rec%mp_physics(grid%id).EQ.FER_MP_HIRES .OR.          &
      &          model_config_rec%mp_physics(grid%id).EQ.ETAMPNEW )             &
      &          ETAMP_Regional=.TRUE.
             CALL wrf_message(' computing grid%f_ice')
@@ -2100,22 +2298,29 @@
                IF (i_m==P_qi .or. i_m==P_qg ) ICE1_indx=.TRUE.
                ICE2_indx=ICE1_indx
                IF (i_m==P_qs) ICE2_indx=.TRUE.
+              IF (ETAMP_Regional .AND. ICE1_indx) THEN
             DO J=JFS,JFE
             DO K=KPS,KPE
             DO I=IFS,IFE
-              IF (ETAMP_Regional .AND. ICE1_indx) THEN
                  moist(I,J,K,p_qs)=moist(I,J,K,p_qs)+moist(I,J,K,i_m)
                  moist(I,J,K,i_m) =0.
+            enddo
+            enddo
+            enddo
+            if(size(grid%f_ice)>1) then
+               DO J=JFS,JFE
+                  DO K=KPS,KPE
+                     DO I=IFS,IFE
+                        grid%f_ice(I,K,J) = grid%f_ice(I,K,J) + moist(I,J,K,i_m)
+                     enddo
+                  enddo
+               enddo
+            endif
               ENDIF
-              IF ( moist(I,J,K,i_m)>EPSQ .AND. ICE2_indx) THEN
-                 grid%f_ice(I,K,J) = grid%f_ice(I,K,J) + moist(I,J,K,i_m)
-              ENDIF
-            enddo
-            enddo
-            enddo
             enddo
             CALL wrf_message(' computing f_rain')
 !
+            if(size(grid%f_ice)>1 .and. size(grid%f_rain)>1) then
             DO J=JFS,JFE
             DO K=KPS,KPE
             DO I=IFS,IFE
@@ -2135,44 +2340,52 @@
             enddo
             enddo
             enddo
+           endif
+           ENDIF
           ENDIF
         ENDIF
 ! End addition by Greg Thompson
 
-        IF (maxval(grid%f_ice) .gt. 0.) THEN
-         do J=JMS,JME
-         do K=KMS,KME
-         do I=IMS,IME
-          grid%f_ice_phy(I,K,J)=grid%f_ice(I,K,J)
-         enddo
-         enddo
-         enddo
-        ENDIF
+        if(size(grid%f_ice)>1) then
+           IF (maxval(grid%f_ice(ips:ipe,:,jps:jpe)) .gt. 0.) THEN
+              do J=JMS,JME
+                 do K=KMS,KME
+                    do I=IMS,IME
+                       grid%f_ice_phy(I,K,J)=grid%f_ice(I,K,J)
+                    enddo
+                 enddo
+              enddo
+           ENDIF
+        endif
 
-        IF (maxval(grid%f_rain) .gt. 0.) THEN
-         do J=JMS,JME
-         do K=KMS,KME
-         do I=IMS,IME
-          grid%f_rain_phy(I,K,J)=grid%f_rain(I,K,J)
-         enddo
-         enddo
-         enddo
-        ENDIF
+        if(size(grid%f_rain)>1) then
+           IF (maxval(grid%f_rain(ips:ipe,:,jps:jpe)) .gt. 0.) THEN
+              do J=JMS,JME
+                 do K=KMS,KME
+                    do I=IMS,IME
+                       grid%f_rain_phy(I,K,J)=grid%f_rain(I,K,J)
+                    enddo
+                 enddo
+              enddo
+           ENDIF
+        endif
 
-        IF (maxval(grid%f_rimef) .gt. 0.) THEN
-          do J=JMS,JME
-          do K=KMS,KME
-          do I=IMS,IME
-            grid%f_rimef_phy(I,K,J)=grid%f_rimef(I,K,J)
-          enddo
-          enddo
-          enddo
-        ENDIF
+        if(size(grid%f_rimef)>1) then
+           IF (maxval(grid%f_rimef(ips:ipe,:,jps:jpe)) .gt. 0.) THEN
+              do J=JMS,JME
+                 do K=KMS,KME
+                    do I=IMS,IME
+                       grid%f_rimef_phy(I,K,J)=grid%f_rimef(I,K,J)
+                    enddo
+                 enddo
+              enddo
+           ENDIF
+        endif
       ENDIF
 !
       IF (.NOT. RESTRT) THEN
   !-- Replace albedos if original albedos are nonzero
-        IF(MAXVAL(ALBEDO_DUM)>0.)THEN
+        IF(MAXVAL(ALBEDO_DUM(ips:ipe,jps:jpe))>0.)THEN
           DO J=JMS,JME
           DO I=IMS,IME
             grid%albedo(I,J)=ALBEDO_DUM(I,J)
@@ -2181,111 +2394,35 @@
         ENDIF
       ENDIF
 
-#ifdef HWRF
+#if ( HWRF == 1 )
       if(.NOT. RESTRT .OR. .NOT.allowed_to_read) then !zhang's doing
 !zhang's doing
 #else
       IF(.NOT.RESTRT)THEN
 #endif
-        DO J=JMS,JME
-        DO I=IMS,IME
+        DO J=jps,min(jpe,jde-1)
+        DO I=ips,min(ipe,ide-1)
           grid%aprec(I,J)=RAINNC(I,J)*1.E-3
           grid%cuprec(I,J)=grid%raincv(I,J)*1.E-3
         ENDDO
         ENDDO
       ENDIF
-!following will need mods Sep06
+
+
 !
-#ifdef WRF_CHEM
-      DO J=JTS,JTE
-        JJ=MIN(JDE-1,J)
-        DO K=KTS,KTE-1
-          KK=MIN(KDE-1,K)
-          DO I=ITS,ITE
-            II=MIN(IDE-1,I)
-            CONVFAC(I,K,J) = grid%pint(II,JJ,KK)/RGASUNIV/grid%t(II,JJ,KK)
-          ENDDO
-        ENDDO
-      ENDDO
-      
-      DO J=JMS,JME
-        DO K=KMS,KME
+! translate scalar_trans(i,k,j,n) back to scalar(i,j,k,n)
+        DO N=1,NUM_SCALAR
+!$omp parallel do                                                       &
+!$omp& private(i,j,k)
+          DO K=KMS,KME
+          DO J=JMS,JME
           DO I=IMS,IME
-            PINT_TRANS(I,K,J)=grid%pint(I,J,K)
-            T_TRANS(I,K,J)=grid%t(I,J,K)
+            SCALAR(I,J,K,N)=SCALAR_TRANS(I,K,J,N)
+          ENDDO
+          ENDDO
           ENDDO
         ENDDO
-      ENDDO 
-      DO J=JMS,JME
-          DO I=IMS,IME
-           grid%xlat(i,j)=grid%glat(I,J)/DEGRAD
-           grid%xlong(I,J)=grid%glon(I,J)/DEGRAD
-
-          ENDDO
-        ENDDO
-!!!    write(0,*)'now do chem_init'
-       CALL CHEM_INIT (GRID%ID,CHEM,EMIS_ANT,scalar,GRID%DT,GRID%BIOEMDT,GRID%PHOTDT,GRID%CHEMDT, &
-               STEPBIOE,STEPPHOT,STEPCHEM,STEPFIREPL,GRID%PLUMERISEFIRE_FRQ,      &
-               ZINT,grid%xlat,grid%xlong,G,AERWRF,CONFIG_FLAGS,grid,       &
-               RRI,T_TRANS,PINT_TRANS,CONVFAC,                 &
-               grid%ttday,grid%tcosz,grid%julday,grid%gmt,                         &
-               GD_CLOUD,GD_CLOUD2,raincv_a,raincv_b,           &
-               GD_CLOUD_a,GD_CLOUD2_a,            &
-               GD_CLOUD_B,GD_CLOUD2_B,            &
-               TAUAER1,TAUAER2,TAUAER3,TAUAER4,                      &
-               GAER1,GAER2,GAER3,GAER4,                              &
-               WAER1,WAER2,WAER3,WAER4,                              &
-               l2AER,l3AER,l4AER,l5AER,l6aer,l7aer,                 &
-               PM2_5_DRY,PM2_5_WATER,PM2_5_DRY_EC,                  &
-               grid%last_chem_time_year,grid%last_chem_time_month,               &
-               grid%last_chem_time_day,grid%last_chem_time_hour,                 &
-               grid%last_chem_time_minute,grid%last_chem_time_second,            &
-               GRID%CHEM_IN_OPT,  &
-               GRID%KEMIT,                                           &
-               IDS , IDE , JDS , JDE , KDS , KDE ,                   &
-               IMS , IME , JMS , JME , KMS , KME ,                   &
-               ITS , ITE , JTS , JTE , KTS , KTE                     )
-
-!     
-! calculate initial pm
-!     
-        SELECT CASE (CONFIG_FLAGS%CHEM_OPT)
-        case (GOCART_SIMPLE,GOCARTRACM_KPP,GOCARTRADM2,GOCARTRADM2_KPP)
-           call sum_pm_gocart (                                             &
-                RRI, CHEM, PM2_5_DRY, PM2_5_DRY_EC,  PM10,                  &
-                IDS,IDE, JDS,JDE, KDS,KDE,                                  &
-                IMS,IME, JMS,JME, KMS,KME,                                  &
-                ITS,ITE, JTS,JTE, KTS,KTE-1                                 )
-        CASE (RADM2SORG,RADM2SORG_AQ,RADM2SORG_AQCHEM,RADM2SORG_KPP,RACMSORG_AQ,RACMSORG_AQCHEM,RACMSORG_KPP)
-!!!       write(0,*)'sum pm '
-           CALL SUM_PM_SORGAM (                                             &
-                RRI, CHEM, H2OAJ, H2OAI,                              &
-                PM2_5_DRY, PM2_5_WATER, PM2_5_DRY_EC, PM10,                 &
-                IDS,IDE, JDS,JDE, KDS,KDE,                                  &
-                IMS,IME, JMS,JME, KMS,KME,                                  &
-                ITS,ITE, JTS,JTE, KTS,KTE-1                                 )
-             
-        CASE (CBMZ_MOSAIC_4BIN, CBMZ_MOSAIC_8BIN, CBMZ_MOSAIC_4BIN_AQ, CBMZ_MOSAIC_8BIN_AQ)
-           CALL SUM_PM_MOSAIC (                                             &
-                RRI, CHEM,                                            &
-                PM2_5_DRY, PM2_5_WATER, PM2_5_DRY_EC, PM10,                 &
-                IDS,IDE, JDS,JDE, KDS,KDE,                                  &
-                IMS,IME, JMS,JME, KMS,KME,                                  &
-                ITS,ITE, JTS,JTE, KTS,KTE-1                                 )
-             
-        CASE DEFAULT
-           DO J=JTS,MIN(JTE,JDE-1)
-              DO K=KTS,MIN(KTE,KDE-1)
-                 DO I=ITS,MIN(ITE,IDE-1)
-                    PM2_5_DRY(I,K,J)    = 0.
-                    PM2_5_WATER(I,K,J)  = 0.
-                    PM2_5_DRY_EC(I,K,J) = 0.
-                    PM10(I,K,J)         = 0.
-                 ENDDO
-              ENDDO
-           ENDDO
-        END SELECT
-#endif
+!
       DEALLOCATE(SFULL)
       DEALLOCATE(SMID)
       DEALLOCATE(DZS)
@@ -2336,9 +2473,9 @@
       DEALLOCATE(PINT_TRANS)
       DEALLOCATE(T_TRANS)
       DEALLOCATE(CLDFRA_TRANS)
-#ifndef WRF_CHEM
       DEALLOCATE(CLDFRA_OLD)
-#endif
+      DEALLOCATE(Z_AT_Q)
+      DEALLOCATE(SCALAR_TRANS)
 #if 0
       DEALLOCATE(w0avg)
 #endif
@@ -2353,49 +2490,49 @@
 !----------------------------------------------------------------------
 
 #ifdef DM_PARALLEL
-#  include <HALO_NMM_INIT_1.inc>
-#  include <HALO_NMM_INIT_2.inc>
-#  include <HALO_NMM_INIT_3.inc>
-#  include <HALO_NMM_INIT_4.inc>
-#  include <HALO_NMM_INIT_5.inc>
-#  include <HALO_NMM_INIT_6.inc>
-#  include <HALO_NMM_INIT_7.inc>
-#  include <HALO_NMM_INIT_8.inc>
-#  include <HALO_NMM_INIT_9.inc>
-#  include <HALO_NMM_INIT_10.inc>
-#  include <HALO_NMM_INIT_11.inc>
-#  include <HALO_NMM_INIT_12.inc>
-#  include <HALO_NMM_INIT_13.inc>
-#  include <HALO_NMM_INIT_14.inc>
-#  include <HALO_NMM_INIT_15.inc>
-#  include <HALO_NMM_INIT_15B.inc>
-#  include <HALO_NMM_INIT_16.inc>
-#  include <HALO_NMM_INIT_17.inc>
-#  include <HALO_NMM_INIT_18.inc>
-#  include <HALO_NMM_INIT_19.inc>
-#  include <HALO_NMM_INIT_20.inc>
-#  include <HALO_NMM_INIT_21.inc>
-#  include <HALO_NMM_INIT_22.inc>
-#  include <HALO_NMM_INIT_23.inc>
-#  include <HALO_NMM_INIT_24.inc>
-#  include <HALO_NMM_INIT_25.inc>
-#  include <HALO_NMM_INIT_26.inc>
-#  include <HALO_NMM_INIT_27.inc>
-#  include <HALO_NMM_INIT_28.inc>
-#  include <HALO_NMM_INIT_29.inc>
-#  include <HALO_NMM_INIT_30.inc>
-#  include <HALO_NMM_INIT_31.inc>
-#  include <HALO_NMM_INIT_32.inc>
-#  include <HALO_NMM_INIT_33.inc>
-#  include <HALO_NMM_INIT_34.inc>
-#  include <HALO_NMM_INIT_35.inc>
-#  include <HALO_NMM_INIT_36.inc>
-#  include <HALO_NMM_INIT_37.inc>
-#  include <HALO_NMM_INIT_38.inc>
-#  include <HALO_NMM_INIT_39.inc>
+#  include "HALO_NMM_INIT_1.inc"
+#  include "HALO_NMM_INIT_2.inc"
+#  include "HALO_NMM_INIT_3.inc"
+#  include "HALO_NMM_INIT_4.inc"
+#  include "HALO_NMM_INIT_5.inc"
+#  include "HALO_NMM_INIT_6.inc"
+#  include "HALO_NMM_INIT_7.inc"
+#  include "HALO_NMM_INIT_8.inc"
+#  include "HALO_NMM_INIT_9.inc"
+#  include "HALO_NMM_INIT_10.inc"
+#  include "HALO_NMM_INIT_11.inc"
+#  include "HALO_NMM_INIT_12.inc"
+#  include "HALO_NMM_INIT_13.inc"
+#  include "HALO_NMM_INIT_14.inc"
+#  include "HALO_NMM_INIT_15.inc"
+#  include "HALO_NMM_INIT_15B.inc"
+#  include "HALO_NMM_INIT_16.inc"
+#  include "HALO_NMM_INIT_17.inc"
+#  include "HALO_NMM_INIT_18.inc"
+#  include "HALO_NMM_INIT_19.inc"
+#  include "HALO_NMM_INIT_20.inc"
+#  include "HALO_NMM_INIT_21.inc"
+#  include "HALO_NMM_INIT_22.inc"
+#  include "HALO_NMM_INIT_23.inc"
+#  include "HALO_NMM_INIT_24.inc"
+#  include "HALO_NMM_INIT_25.inc"
+#  include "HALO_NMM_INIT_26.inc"
+#  include "HALO_NMM_INIT_27.inc"
+#  include "HALO_NMM_INIT_28.inc"
+#  include "HALO_NMM_INIT_29.inc"
+#  include "HALO_NMM_INIT_30.inc"
+#  include "HALO_NMM_INIT_31.inc"
+#  include "HALO_NMM_INIT_32.inc"
+#  include "HALO_NMM_INIT_33.inc"
+#  include "HALO_NMM_INIT_34.inc"
+#  include "HALO_NMM_INIT_35.inc"
+#  include "HALO_NMM_INIT_36.inc"
+#  include "HALO_NMM_INIT_37.inc"
+#  include "HALO_NMM_INIT_38.inc"
+#  include "HALO_NMM_INIT_39.inc"
 #endif
 !#define COPY_OUT
-!#include <scalar_derefs.inc>
+!#include "scalar_derefs.inc"
 
    write(message,*) "Timing for start_domain on d",grid%id
    call end_timing(message)

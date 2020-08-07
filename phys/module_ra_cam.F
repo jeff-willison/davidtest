@@ -210,6 +210,7 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
                      SWVISDIR,SWVISDIF,                            & !ssib 
                      SWNIRDIR,SWNIRDIF,                            & !ssib 
                      sf_surface_physics,                           & !ssib 
+                     SWDDIR,SWDDIF,SWDDNI,                         & ! amontornes-bcodina (2014-04-20)
                      F_QV,F_QC,F_QR,F_QI,F_QS,F_QG,                &
                      f_ice_phy,f_rain_phy,                         &
                      p_phy,p8w,z,pi_phy,rho_phy,dz8w,               &
@@ -224,10 +225,13 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
                      doabsems,                                     &
                      ids,ide, jds,jde, kds,kde,                    &
                      ims,ime, jms,jme, kms,kme,                    &
-                     its,ite, jts,jte, kts,kte                     )
+                     its,ite, jts,jte, kts,kte,                    &
+                     coszen                                        )
 
+!ccc To use CLWRF time-varying trace gases
+   USE MODULE_RA_CLWRF_SUPPORT, ONLY : read_CAMgases
    USE module_wrf_error
-   USE module_state_description, ONLY : SSIBSCHEME              !ssib
+   USE module_state_description, ONLY : SSIBSCHEME, CLMSCHEME          !ssib & clm
 
 !------------------------------------------------------------------
    IMPLICIT NONE
@@ -309,7 +313,11 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
          INTENT(OUT)    ::                              SWVISDIR, &
                                                         SWVISDIF, &
                                                         SWNIRDIR, &
-                                                        SWNIRDIF
+                                                        SWNIRDIF, &
+							                            SWDDIR,   &
+                                                        SWDDNI,   &
+                                                        SWDDIF
+
    INTEGER, INTENT(IN) :: sf_surface_physics
 !--------------------------------------
 ! saving arrays for doabsems reduction of radiation calcs
@@ -358,6 +366,7 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
                                                           F_ICE_PHY, &
                                                          F_RAIN_PHY
 
+  real, dimension(ims:ime,jms:jme), optional, intent(in) :: coszen
 
 ! LOCAL VARIABLES
  
@@ -395,6 +404,10 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
    real(r8), dimension(  1:ite-its+1, 1:kte-kts+2 )  :: fsupc       ! Upward clear sky solar
    real(r8), dimension(  1:ite-its+1, 1:kte-kts+2 )  :: fsdn        ! Downward total sky solar
    real(r8), dimension(  1:ite-its+1, 1:kte-kts+2 )  :: fsdnc       ! Downward clear sky solar
+   real(r8), dimension(  1:ite-its+1, 1:kte-kts+2 )  :: fsdndir     ! Direct Downward total sky solar amontornes-bcodina (2014-04-20)
+   real(r8), dimension(  1:ite-its+1, 1:kte-kts+2 )  :: fsdncdir    ! Direct Downward clear sky solar amontornes-bcodina (2014-04-20)
+   real(r8), dimension(  1:ite-its+1, 1:kte-kts+2 )  :: fsdndif     ! Diffuse Downward total sky solar amontornes-bcodina (2014-04-20)
+   real(r8), dimension(  1:ite-its+1, 1:kte-kts+2 )  :: fsdncdif    ! Diffuse Downward clear sky solar amontornes-bcodina (2014-04-20)
    real(r8), dimension(  1:ite-its+1, 1:kte-kts+2 )  :: flup        ! Upward total sky longwave
    real(r8), dimension(  1:ite-its+1, 1:kte-kts+2 )  :: flupc       ! Upward clear sky longwave
    real(r8), dimension(  1:ite-its+1, 1:kte-kts+2 )  :: fldn        ! Downward total sky longwave
@@ -409,6 +422,8 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
    real(r8), dimension(  1:ite-its+1 ) :: solld         ! Downward solar rad onto surface (lw diffuse)
    real(r8), dimension(  1:ite-its+1, 1:kte-kts+1 ) :: qrs      ! Solar heating rate
    real(r8), dimension(  1:ite-its+1 ) :: fsds          ! Flux Shortwave Downwelling Surface
+   real(r8), dimension(  1:ite-its+1 ) :: fsdsdir       ! Flux Shortwave Direct Downwelling Surface
+   real(r8), dimension(  1:ite-its+1 ) :: fsdsdif       ! Flux Shortwave Diffuse Downwelling Surface
    real(r8), dimension(  1:ite-its+1, 1:kte-kts+1 ) :: qrl      ! Longwave cooling rate
    real(r8), dimension(  1:ite-its+1 ) :: flwds          ! Surface down longwave flux
    real(r8), dimension(  1:ite-its+1, levsiz, num_months ) :: ozmixmj        ! monthly ozone mixing ratio
@@ -423,6 +438,16 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
    real(r8), dimension(its:ite,kts:kte,4)           :: absnxt ! Total nearest layer absorptivity
    real(r8), dimension(its:ite,kts:kte+1)           :: emstot ! Total emissivity
    CHARACTER(LEN=256) :: msgstr
+
+!ccc
+#ifdef CLWRFGHG
+! CLWRF-UC June.09 
+   REAL(r8)                                         :: co2vmr, n2ovmr, ch4vmr, f11vmr, f12vmr
+#endif
+   LOGICAL, EXTERNAL                                :: wrf_dm_on_monitor
+   CHARACTER(LEN=256)                               :: message
+
+!ccc
 
 #if !defined(MAC_KLUDGE)
    lchnk = 1
@@ -455,6 +480,22 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
 ! of interpolation factors to within 32-bit roundoff
 ! assume that day of year is 1 for all input data
 !
+!ccc
+#ifdef CLWRFGHG
+! CLWRF-UC June.09  (Copy from share/wrf_tsin.F)
+
+   CALL read_CAMgases(yr,julian,"CAM",co2vmr,n2ovmr,ch4vmr,f11vmr,f12vmr)
+
+   IF ( wrf_dm_on_monitor() ) THEN
+     WRITE(message,*)'write 1 CAM-CLWRF interpolated values______ year:',yr,' julian day:',julian
+     call wrf_debug( 100, message)
+     WRITE(message,*)'  CAM-CLWRF co2vmr: ',co2vmr,' n2ovmr:',n2ovmr,' ch4vmr:',ch4vmr,' cfc11:'&
+       ,f11vmr,' cfc12:',f12vmr
+     call wrf_debug( 100, message)
+   ENDIF
+
+#else
+!ccc
    nyrm     = yr - yrdata(1) + 1
    nyrp     = nyrm + 1
    doymodel = yr*365.    + julian
@@ -464,6 +505,16 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
    fact1    = (doydatap - doymodel)/deltat
    fact2    = (doymodel - doydatam)/deltat
    co2vmr = (co2(nyrm)*fact1 + co2(nyrp)*fact2)*1.e-06
+!ccc
+   IF ( wrf_dm_on_monitor() ) THEN
+     WRITE(message,*)'CAM interpolated values_____ year:',yr,' julian day:',julian
+     call wrf_debug( 100, message)
+     WRITE(message,*)'CAM co2vmr: ',co2vmr,' n2ovmr:',n2ovmr,' ch4vmr:',ch4vmr,' cfc11:',f11vmr,&
+       ' cfc12:',f12vmr
+     call wrf_debug( 100, message)
+   ENDIF
+#endif
+!ccc
 
    co2mmr=co2vmr*mwco2/mwdry
 !
@@ -493,19 +544,27 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
 
 !  call zenith (calday, clat, clon, coszrs, ncol)
 
-      do i = its,ite
-      ii = i - its + 1
-      ! XT24 is the fractional part of simulation days plus half of RADT expressed in 
-      ! units of minutes
-      ! JULIAN is in days
-      ! RADT is in minutes
-      XT24=MOD(XTIME+RADT*0.5,1440.)
-      TLOCTM=GMT+XT24/60.+XLONG(I,J)/15.
-      HRANG=15.*(TLOCTM-12.)*DEGRAD
-      XXLAT=XLAT(I,J)*DEGRAD
-      clat(ii)=xxlat
-      coszrs(II)=SIN(XXLAT)*SIN(DECLIN)+COS(XXLAT)*COS(DECLIN)*COS(HRANG)
-      enddo
+      if (present(coszen)) then
+         do i=its,ite
+            ii=i-its+1
+            clat(ii)=XLAT(I,J)*DEGRAD
+            coszrs(ii)=coszen(i,j)
+         enddo
+      else
+         do i = its,ite
+            ii = i - its + 1
+            ! XT24 is the fractional part of simulation days plus half of RADT expressed in 
+            ! units of minutes
+            ! JULIAN is in days
+            ! RADT is in minutes
+            XT24=MOD(XTIME+RADT*0.5,1440.)
+            TLOCTM=GMT+XT24/60.+XLONG(I,J)/15.
+            HRANG=15.*(TLOCTM-12.)*DEGRAD
+            XXLAT=XLAT(I,J)*DEGRAD
+            clat(ii)=xxlat
+            coszrs(II)=SIN(XXLAT)*SIN(DECLIN)+COS(XXLAT)*COS(DECLIN)*COS(HRANG)
+         enddo
+      end if
 
 ! moist variables
 
@@ -658,6 +717,32 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
          aldif(ii) = albedo(i,j)
       enddo
    endif
+   CASE (CLMSCHEME)
+   if (xtime .gt. 1.0) then
+      do i = its,ite
+         ii = i - its + 1
+         if (xland(i,j).lt.1.5) then   !land points only
+           asdir(ii) = ALSWVISDIR(i,j) ! CLM visdir albedo
+           asdif(ii) = ALSWVISDIF(i,j) ! CLM visdif albedo
+           aldir(ii) = ALSWNIRDIR(i,j) ! CLM nirdir albedo
+           aldif(ii) = ALSWNIRDIF(i,j) ! CLM nirdif albedo
+         else
+           asdir(ii) = albedo(i,j)
+           asdif(ii) = albedo(i,j)
+           aldir(ii) = albedo(i,j)
+           aldif(ii) = albedo(i,j)
+         endif
+      enddo
+   else
+      do i = its,ite
+         ii = i - its + 1
+         asdir(ii) = albedo(i,j)
+         asdif(ii) = albedo(i,j)
+         aldir(ii) = albedo(i,j)
+         aldif(ii) = albedo(i,j)
+      enddo
+   endif
+
    CASE DEFAULT
       do i = its,ite
       ii = i - its + 1
@@ -681,11 +766,19 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
                    pin, ozmixmj, ozmix, levsiz, num_months,  & 
                    m_psjp,m_psjn, aerosoljp, aerosoljn,  m_hybi, paerlev, naer_c, pmxrgn, nmxrgn, &
                    dolw, dosw, doabsems, abstot, absnxt, emstot, &
-                   fsup, fsupc, fsdn, fsdnc, flup, flupc, fldn, fldnc, swcftoa, lwcftoa, olrtoa,  &
+                   fsup, fsupc, fsdn, fsdnc,            &
+                   fsdndir ,fsdncdir,fsdndif ,fsdncdif, & ! amontornes-bcodina (2014-04-20) Dir/Dif fluxes
+                   flup, flupc, fldn, fldnc, swcftoa, lwcftoa, olrtoa,  &
                    fsns, fsnt    ,flns    ,flnt    , &
                    qrs, qrl, flwds, rel, rei,                       &
                    sols, soll, solsd, solld,                  &
-                   landfrac, zm, fsds)
+!ccc
+#ifdef CLWRFGHG
+!CLWRF-UC June.09
+                   n2ovmr, ch4vmr, f11vmr, f12vmr  , &
+#endif
+!ccc
+                   landfrac, zm, fsds, fsdsdir, fsdsdif) ! amontornes-bcodina (2014-04-20) Dir/Dif fluxes
 
       do k = kts,kte
       kk = kte - k + kts 
@@ -796,6 +889,9 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
         GSW(I,J) = fsns(ii)
         swcf(i,j) = swcftoa(ii)
         coszr(i,j) = coszrs(ii)
+        SWDDIR(i,j)= fsdsdir(ii)               ! amontornes-bcodina (2014-04-20)
+        SWDDNI(i,j)= fsdsdir(ii)/coszrs(ii)    ! amontornes-bcodina (2014-04-20)
+        SWDDIF(i,j)= fsdsdif(ii)               ! amontornes-bcodina (2014-04-20)
       endif
       enddo
 !-------fds (06/2010)---------
@@ -811,6 +907,17 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
         SWNIRDIF(I,J) = solld(ii) !SSiB 
       enddo
       endif
+  CASE (CLMSCHEME)
+      if(dosw)then
+      do i = its,ite
+        ii = i - its + 1
+        SWVISDIR(I,J) = sols(ii)  !CLM
+        SWVISDIF(I,J) = solsd(ii) !CLM
+        SWNIRDIR(I,J) = soll(ii)  !CLM
+        SWNIRDIF(I,J) = solld(ii) !CLM
+      enddo
+      endif
+
    END SELECT
 !-----------------------------
 
@@ -1180,6 +1287,14 @@ subroutine get_aerosol(c, julday, julian, dt, gmt, xtime, m_psp, m_psn, aerosolj
             if (AEROSOLt(i, k, m) < speciesmin(m)) then
                write(6,*) 'AEROSOL_INTERPOLATE: negative mass mixing ratio, exiting'
                write(6,*) 'm, column, pver',m, i, k ,AEROSOLt(i, k, m)
+!ccc
+#ifdef CLWRFGHG
+!CLWRF-UC July.09
+               print *,'naer:',naer,' pver:',pver,' ncol:',ncol
+               PRINT *,'ERROR -- error -- ERROR -- error -- ERROR -- error'
+               CALL wrf_error_fatal('CLWRF-module_ra_cam. : AEROSOLt=NaN')
+#endif
+!ccc
                call endrun ()
             end if
          end do
@@ -1203,7 +1318,7 @@ subroutine aerosol_indirect(ncol,lchnk,pcols,pver,ppcnst,landfrac,pmid,t,qm1,cld
 ! use constituents, only: ppcnst, cnst_get_ind
 ! use history, only: outfld
 
-!#include <comctl.h>
+!#include "comctl.h"
 
   integer, intent(in) :: ncol                  ! number of atmospheric columns
   integer, intent(in) :: lchnk                 ! chunk identifier
@@ -1423,7 +1538,7 @@ end subroutine aerosol_indirect
 !     use ppgrid
 !     use pmgrid
       implicit none
-!#include <crdcon.h>
+!#include "crdcon.h"
 
 !     Parameters
 !     Input
@@ -1459,12 +1574,19 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
                   nmxrgn  ,                   &
                   dolw, dosw, doabsems, abstot, absnxt, emstot, &
                   fsup    ,fsupc   ,fsdn    ,fsdnc   , &
+                  fsdndir ,fsdncdir,fsdndif ,fsdncdif, & ! amontornes-bcodina (2014-04-20) Dir/Dif fluxes
                   flup    ,flupc   ,fldn    ,fldnc   , &
                   swcf    ,lwcf    ,flut    ,          &
                   fsns    ,fsnt    ,flns    ,flnt    , &
                   qrs     ,qrl     ,flwds   ,rel     ,rei     , &
                   sols    ,soll    ,solsd   ,solld   , &
-                  landfrac,zm      ,fsds     )
+!ccc
+#ifdef CLWRFGHG
+!CLWRF-UC June.09
+                  n2ovmr, ch4vmr, f11vmr, f12vmr     , &
+#endif
+!ccc
+                  landfrac,zm      ,fsds, fsdsdir,fsdsdif     ) ! amontornes-bcodina (2014-04-20) Dir/Dif fluxes
 !----------------------------------------------------------------------- 
 ! 
 ! Purpose: 
@@ -1573,11 +1695,17 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
    real(r8), intent(out) :: solld(pcols)         ! Downward solar rad onto surface (lw diffuse)
    real(r8), intent(out) :: qrs(pcols,pver)      ! Solar heating rate
    real(r8), intent(out) :: fsds(pcols)          ! Flux Shortwave Downwelling Surface
+   real(r8), intent(out) :: fsdsdir(pcols)       ! Flux Shortwave Direct Downwelling Surface (amontornes-bcodina 2014-04-20)
+   real(r8), intent(out) :: fsdsdif(pcols)       ! Flux Shortwave Diffuse Downwelling Surface (amontornes-bcodina 2014-04-20)
 ! Added outputs of total and clearsky fluxes etc
    real(r8), intent(out) :: fsup(pcols,pverp)    ! Upward total sky solar
    real(r8), intent(out) :: fsupc(pcols,pverp)   ! Upward clear sky solar
    real(r8), intent(out) :: fsdn(pcols,pverp)    ! Downward total sky solar
    real(r8), intent(out) :: fsdnc(pcols,pverp)   ! Downward clear sky solar
+   real(r8), intent(out) :: fsdndir(pcols,pverp) ! Downward Direct total sky solar (amontornes-bcodina 2014-04-20)
+   real(r8), intent(out) :: fsdncdir(pcols,pverp)! Downward Direct clear sky solar (amontornes-bcodina 2014-04-20)
+   real(r8), intent(out) :: fsdndif(pcols,pverp) ! Downward Diffuse total sky solar (amontornes-bcodina 2014-04-20)
+   real(r8), intent(out) :: fsdncdif(pcols,pverp)! Downward Diffuse clear sky solar (amontornes-bcodina 2014-04-20)
    real(r8), intent(out) :: flup(pcols,pverp)    ! Upward total sky longwave
    real(r8), intent(out) :: flupc(pcols,pverp)   ! Upward clear sky longwave
    real(r8), intent(out) :: fldn(pcols,pverp)    ! Downward total sky longwave
@@ -1613,6 +1741,8 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
    real(r8) fsntc(pcols)         ! Clear sky total column abs solar flux
    real(r8) fsnsc(pcols)         ! Clear sky surface abs solar flux
    real(r8) fsdsc(pcols)         ! Clear sky surface downwelling solar flux
+   real(r8) fsdscdir(pcols)      ! Clear sky surface direct downwelling solar flux (amontornes-bcodina 2014-04-20)
+   real(r8) fsdscdif(pcols)      ! Clear sky surface diffuse downwelling solar flux (amontornes-bcodina 2014-04-20)
 !  real(r8) flut(pcols)          ! Upward flux at top of model
 !  real(r8) lwcf(pcols)          ! longwave cloud forcing
 !  real(r8) swcf(pcols)          ! shortwave cloud forcing
@@ -1645,6 +1775,14 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
    real(r8) aerosol(pcols, pver, naer_all) ! aerosol mass mixing ratios
    real(r8) scales(naer_all)               ! scaling factors for aerosols
 
+!ccc
+#ifdef CLWRFGHG
+!CLWRF-UC July.09
+   real(r8), INTENT(IN)        ::    n2ovmr, ch4vmr, f11vmr, f12vmr
+#endif
+   LOGICAL, EXTERNAL                                :: wrf_dm_on_monitor
+   CHARACTER (LEN=256)         ::    message
+!ccc
 
 !
 ! Interpolate ozone volume mixing ratio to model levels
@@ -1713,6 +1851,8 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
                     fsnsc   ,fsdsc   ,fsds    ,sols    ,soll    , &
                     solsd   ,solld   ,frc_day ,                   &
                     fsup    ,fsupc   ,fsdn    ,fsdnc   ,          &
+                    fsdndir ,fsdncdir,fsdndif ,fsdncdif,          & ! amontornes-bcodina (2014-04-20) Dir/Dif fluxes profile
+                    fsdsdir ,fsdsdif ,fsdscdir,fsdscdif,          & ! amontornes-bcodina (2014-04-20) Dir/Dif fluxes sfc
                     aertau  ,aerssa  ,aerasm  ,aerfwd             )
 !        call t_stopf('radcswmx_rf')
 
@@ -1761,6 +1901,8 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
                     fsnsc   ,fsdsc   ,fsds    ,sols    ,soll    , &
                     solsd   ,solld   ,frc_day ,                   &
                     fsup    ,fsupc   ,fsdn    ,fsdnc   ,          &
+                    fsdndir ,fsdncdir,fsdndif ,fsdncdif,          & ! amontornes-bcodina (2014-04-20) Dir/Dif fluxes profiles
+                    fsdsdir ,fsdsdif ,fsdscdir,fsdscdif,          & ! amontornes-bcodina (2014-04-20) Dir/Dif fluxes sfc
                     aertau  ,aerssa  ,aerasm  ,aerfwd             )
 !     call t_stopf('radcswmx')
 
@@ -1782,6 +1924,11 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
          fsntoa(i)=fsntoa(i)*1.e-3
          fsntoac(i)=fsntoac(i)*1.e-3
          swcf(i)  = fsntoa(i) - fsntoac(i)
+
+         fsdsdir(i)  = fsdsdir(i)*1.e-3  ! amontornes-bcodina (2014-04-20)
+         fsdsdif(i)  = fsdsdif(i)*1.e-3  ! amontornes-bcodina (2014-04-20)
+         fsdscdir(i) = fsdscdir(i)*1.e-3 ! amontornes-bcodina (2014-04-20)
+         fsdscdif(i) = fsdscdif(i)*1.e-3 ! amontornes-bcodina (2014-04-20)
       end do
       ftem(:ncol,:pver) = qrs(:ncol,:pver)/cpair
 
@@ -1875,10 +2022,27 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
                        aerosol(:,:,idxVOLC))
 !        call t_stopf("radclwmx")
       else
+!ccc
+#ifdef CLWRFGHG
+         IF ( wrf_dm_on_monitor() ) THEN
+           WRITE(message,*)'CLWRF-CAM_call-trcmix n2ovmr:',n2ovmr,' ch4vmr:',ch4vmr,' f11vmr:',f11vmr,' f12vmr:',f12vmr
+           CALL wrf_debug(1, message)
+         END IF
+         call trcmix_clwrf(lchnk   ,ncol    ,pcols, pver,  &
+                     pmid    ,clat, n2ovmr, ch4vmr, f11vmr, f12vmr, n2o,   &
+                     ch4, cfc11, cfc12 )
+
+#else
          call trcmix(lchnk   ,ncol    ,pcols, pver,  &
                      pmid    ,clat, n2o     ,ch4     ,                     &
                      cfc11   ,cfc12   )
-
+#endif
+         IF ( wrf_dm_on_monitor() ) THEN
+           WRITE(message,*)'CLWRF post_trcmix_values. n2o:', n2o(pcols/2,pver/2), ' ch4:',      &
+             ch4(pcols/2,pver/2),' cfc11:', cfc11(pcols/2,pver/2),' cfc12:', cfc12(pcols/2,pver/2) 
+           CALL wrf_debug(1, message)
+         END IF 
+!ccc
 !        call t_startf("radclwmx")
          call radclwmx(lchnk     ,ncol    ,pcols, pver, pverp ,        &
                        lwupcgs   ,t       ,qm1(1,1,1)       ,o3vmr ,   &
@@ -5547,6 +5711,8 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
                     fsnsc   ,fsdsc   ,fsds    ,sols    ,soll    , &
                     solsd   ,solld   ,frc_day ,                   &
                     fsup    ,fsupc   ,fsdn    ,fsdnc   ,          &
+                    fsdndir ,fsdncdir,fsdndif ,fsdncdif,          & ! amontornes-bcodina (2014-04-20) Dir/Dif fluxes profiles
+                    fsdsdir ,fsdsdif ,fsdscdir,fsdscdif,          & ! amontornes-bcodina (2014-04-20) Dir/Dif fluxes sfc
                     aertau  ,aerssa  ,aerasm  ,aerfwd             )
 !-----------------------------------------------------------------------
 ! 
@@ -5723,6 +5889,12 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
 ! 
    real(r8), intent(out) :: fsnsc(pcols)     ! Clear sky surface absorbed solar flux
    real(r8), intent(out) :: fsdsc(pcols)     ! Clear sky surface downwelling solar flux
+
+   real(r8), intent(out) :: fsdscdir(pcols)  ! Clear sky surface direct downwelling solar flux (amontornes-bcodina 2014-04-20)
+   real(r8), intent(out) :: fsdscdif(pcols)  ! Clear sky surface diffuse downwelling solar flux (amontornes-bcodina 2014-04-20)
+   real(r8), intent(out) :: fsdsdir(pcols)   ! Clear sky surface direct downwelling solar flux (amontornes-bcodina 2014-04-20)
+   real(r8), intent(out) :: fsdsdif(pcols)   ! Clear sky surface diffuse downwelling solar flux (amontornes-bcodina 2014-04-20)
+
    real(r8), intent(out) :: fsntc(pcols)     ! Clear sky total column absorbed solar flx
    real(r8), intent(out) :: fsntoac(pcols)   ! Clear sky net solar flx at TOA
    real(r8), intent(out) :: sols(pcols)      ! Direct solar rad on surface (< 0.7)
@@ -5740,6 +5912,10 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
    real(r8), intent(out) :: fsupc(pcols,pverp)     ! Clear sky upward solar flux (spectrally summed)
    real(r8), intent(out) :: fsdn(pcols,pverp)      ! Total sky downward solar flux (spectrally summed)
    real(r8), intent(out) :: fsdnc(pcols,pverp)     ! Clear sky downward solar flux (spectrally summed)
+   real(r8), intent(out) :: fsdndir(pcols,pverp)   ! Total sky direct downward solar flux (spectrally summed) amontornes-bcodina (2014-04-20)
+   real(r8), intent(out) :: fsdncdir(pcols,pverp)  ! Clear sky direct downward solar flux (spectrally summed) amontornes-bcodina (2014-04-20)
+   real(r8), intent(out) :: fsdndif(pcols,pverp)   ! Total sky diffuse downward solar flux (spectrally summed) amontornes-bcodina (2014-04-20)
+   real(r8), intent(out) :: fsdncdif(pcols,pverp)  ! Clear sky diffuse downward solar flux (spectrally summed) amontornes-bcodina (2014-04-20)
 !
    real(r8) , intent(out) :: frc_day(pcols) ! = 1 for daylight, =0 for night columns
    real(r8) :: aertau(pcols,nspint,naer_groups) ! Aerosol column optical depth
@@ -5900,6 +6076,8 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
    real(r8) fswdn(0:pverp)   ! Spectrally summed down flux
    real(r8) fswupc(0:pverp)  ! Spectrally summed up clear sky flux
    real(r8) fswdnc(0:pverp)  ! Spectrally summed down clear sky flux
+   real(r8) fswdndir(0:pverp) ! Spectrally summed direct flux in all sky    (amontornes-bcodina 2014-04-20)
+   real(r8) fswdncdir(0:pverp)! Spectrally summed direct flux in clear sky  (amontornes-bcodina 2014-04-20)
 ! 
 ! Cloud radiative property arrays
 ! 
@@ -6093,6 +6271,7 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
 
    real(r8) fluxup(0:pverp)  ! Up   flux at model interface
    real(r8) fluxdn(0:pverp)  ! Down flux at model interface
+   real(r8) fluxdndir(0:pverp)  ! Direct Down flux at model interface (amontornes-bcodina 2014-04-20)
    real(r8) wexptdn          ! Direct solar beam trans. to surface
 
 ! moved to here from the module storage above, because these have to be thread-private.  JM 20100217
@@ -6132,6 +6311,11 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
       fsnsc(i)    = 0.0_r8
       fsdsc(i)    = 0.0_r8
 
+      fsdscdir(i) = 0.0_r8 ! amontornes-bcodina (2014-04-20)
+      fsdscdif(i) = 0.0_r8 ! amontornes-bcodina (2014-04-20)
+      fsdsdir(i)  = 0.0_r8 ! amontornes-bcodina (2014-04-20)
+      fsdsdif(i)  = 0.0_r8 ! amontornes-bcodina (2014-04-20)
+
       fsnt(i)     = 0.0_r8
       fsntc(i)    = 0.0_r8
       fsntoa(i)   = 0.0_r8
@@ -6151,6 +6335,10 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
             fsupc(i,k) = 0.0_r8
             fsdn(i,k)  = 0.0_r8
             fsdnc(i,k) = 0.0_r8
+            fsdndir(i,k)  = 0.0_r8 ! amontornes-bcodina (2014-04-20)
+            fsdncdir(i,k) = 0.0_r8 ! amontornes-bcodina (2014-04-20)
+            fsdndif(i,k)  = 0.0_r8 ! amontornes-bcodina (2014-04-20)
+            fsdncdif(i,k) = 0.0_r8 ! amontornes-bcodina (2014-04-20)
             tauxcl(i,k-1) = 0.0_r8
             tauxci(i,k-1) = 0.0_r8
          end do
@@ -6997,6 +7185,8 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
             fswdn (k) = 0.0_r8
             fswupc (k) = 0.0_r8
             fswdnc (k) = 0.0_r8
+            fswdndir(k) = 0.0_r8 ! amontornes-bcodina (2014-04-20)
+            fswdncdir(k)= 0.0_r8 ! amontornes-bcodina (2014-04-20)
          end do
 
          sfltot        = 0.0_r8
@@ -7004,6 +7194,9 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
          fswdn (pverp) = 0.0_r8
          fswupc (pverp) = 0.0_r8
          fswdnc (pverp) = 0.0_r8
+         fswdndir(pverp) = 0.0_r8 ! amontornes-bcodina (2014-04-20)
+         fswdncdir(pverp)= 0.0_r8 ! amontornes-bcodina (2014-04-20)
+
 ! 
 ! Start spectral interval
 ! 
@@ -7177,6 +7370,7 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
 ! 
                fluxup(k)=0.0_r8
                fluxdn(k)=0.0_r8
+               fluxdndir(k) = 0.0_r8 ! amontornes-bcodina (2014-04-20)
 
                do iconfig = 1, nconfig
                   xwgt = wgtv(iconfig)
@@ -7194,6 +7388,8 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
                               ((xexpt * xrups + (xtdnt - xexpt) * xrupd) * rdenom)
                   fluxdn(k) = fluxdn(k) + xwgt *  &
                               (xexpt + (xtdnt - xexpt + xexpt * xrups * xrdnd) * rdenom)
+                  fluxdndir(k) = fluxdndir(k) + xwgt * xexpt ! Beer's Law amontornes-bcodina (2014-04-20)
+                  
 ! 
 ! End do iconfig = 1, nconfig
 ! 
@@ -7203,7 +7399,8 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
 ! in solution
 ! 
                fluxup(k)=fluxup(k) / totwgt
-               fluxdn(k)=fluxdn(k) / totwgt                  
+               fluxdn(k)=fluxdn(k) / totwgt           
+               fluxdndir(k)=fluxdndir(k) / totwgt    ! amontornes-bcodina (2014-04-20)
 ! 
 ! End do k = 0,pverp
 ! 
@@ -7228,6 +7425,7 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
             sfltot   = sfltot + solflx
             fswup(0) = fswup(0) + solflx*fluxup(0)
             fswdn(0) = fswdn(0) + solflx*fluxdn(0)
+            fswdndir(0) = fswdndir(0) + solflx*fluxdndir(0)  ! amontornes-bcodina (2014-04-20)
 ! 
 ! Down spectral fluxes need to be in mks; thus the .001 conversion factors
 ! 
@@ -7251,6 +7449,7 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
                totfld(k)  = totfld(k)  + solflx*flxdiv
                fswdn(kp1) = fswdn(kp1) + solflx*fluxdn(kp1)
                fswup(kp1) = fswup(kp1) + solflx*fluxup(kp1)
+               fswdndir(kp1) = fswdndir(kp1) + solflx*fluxdndir(kp1)  ! amontornes-bcodina (2014-04-20)
             end do
 ! 
 ! Perform clear-sky calculation
@@ -7301,6 +7500,7 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
                            rdenom
                fswupc(k) = fswupc(k) + solflx*fluxup(k)
                fswdnc(k) = fswdnc(k) + solflx*fluxdn(k)
+               fswdncdir(k) = fswdncdir(k) + solflx*exptdnc(k) ! Beer's Law amontornes-bcodina (2014-04-20)
             end do
 !           k = pverp
             do k=2,pverp
@@ -7311,6 +7511,7 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
                           exptdnc(k)*rupdirc(k)*rdndifc(k))*rdenom
             fswupc(k)   = fswupc(k) + solflx*fluxup(k)
             fswdnc(k)   = fswdnc(k) + solflx*fluxdn(k)
+            fswdncdir(k) = fswdncdir(k) + solflx*exptdnc(k) ! Beer's Law amontornes-bcodina (2014-04-20)
             end do
 
             fsntc(i)    = fsntc(i)+solflx*(fluxdn(1)-fluxup(1))
@@ -7340,11 +7541,21 @@ subroutine radcswmx(jj, lchnk   ,ncol    ,pcols, pver, pverp,         &
             fsupc(i,k) = fswupc(k)
             fsdn(i,k)  = fswdn(k)
             fsdnc(i,k) = fswdnc(k)
+            fsdndir(i,k)  = fswdndir(k)            ! amontornes-bcodina (2014-04-20)
+            fsdncdir(i,k) = fswdncdir(k)           ! amontornes-bcodina (2014-04-20)
+            fsdndif(i,k)  = fswdn(k)-fswdndir(k)   ! amontornes-bcodina (2014-04-20)
+            fsdncdif(i,k) = fswdnc(k)-fswdncdir(k) ! amontornes-bcodina (2014-04-20)
          end do
+
 ! 
 ! Set the downwelling flux at the surface 
 ! 
          fsds(i) = fswdn(pverp)
+! amontornes-bcodina (2014-04-20) :: Save surface direct/difuse fluxes
+      fsdscdir(i) = fsdncdir(i,pverp) ! amontornes-bcodina (2014-04-20)
+      fsdscdif(i) = fsdncdif(i,pverp) ! amontornes-bcodina (2014-04-20)
+      fsdsdir(i)  = fsdndir(i,pverp)  ! amontornes-bcodina (2014-04-20)
+      fsdsdif(i)  = fsdndif(i,pverp)  ! amontornes-bcodina (2014-04-20)
 ! 
 ! End do n=1,ndayc
 ! 

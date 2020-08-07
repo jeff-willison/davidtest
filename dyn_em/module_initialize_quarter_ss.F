@@ -53,7 +53,7 @@ CONTAINS
 
      CALL init_domain_rk( grid &
 !
-#include <actual_new_args.inc>
+#include "actual_new_args.inc"
 !
                         )
 
@@ -63,7 +63,7 @@ CONTAINS
 
    SUBROUTINE init_domain_rk ( grid &
 !
-# include <dummy_new_args.inc>
+# include "dummy_new_args.inc"
 !
 )
    IMPLICIT NONE
@@ -71,7 +71,7 @@ CONTAINS
    !  Input data.
    TYPE (domain), POINTER :: grid
 
-# include <dummy_new_decl.inc>
+# include "dummy_new_decl.inc"
 
    TYPE (grid_config_rec_type)              :: config_flags
 
@@ -86,7 +86,7 @@ CONTAINS
 
    INTEGER, PARAMETER :: nl_max = 1000
    REAL, DIMENSION(nl_max) :: zk, p_in, theta, rho, u, v, qv, pd_in
-   INTEGER :: nl_in
+   INTEGER :: nl_in , icount
 
 
    INTEGER :: icm,jcm, ii, im1, jj, jm1, loop, error, fid, nxc, nyc
@@ -426,7 +426,7 @@ CONTAINS
 
     grid%ph_1(i,1,j) = 0.
     DO k  = 2,kte
-      grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (1./grid%rdnw(k-1))*(       &
+      grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (grid%dnw(k-1))*(       &
                    (grid%mub(i,j)+grid%mu_1(i,j))*grid%al(i,k-1,j)+ &
                     grid%mu_1(i,j)*grid%alb(i,k-1,j)  )
                                                    
@@ -481,7 +481,7 @@ CONTAINS
 !  rebalance hydrostatically
 
       DO k  = 2,kte
-        grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (1./grid%rdnw(k-1))*(       &
+        grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (grid%dnw(k-1))*(       &
                      (grid%mub(i,j)+grid%mu_1(i,j))*grid%al(i,k-1,j)+ &
                       grid%mu_1(i,j)*grid%alb(i,k-1,j)  )
                                                    
@@ -611,6 +611,46 @@ CONTAINS
   ENDDO
   ENDDO
 
+  !  Template for initializing trajectories.  The i, j, and k starting locations
+  !  are specified.  Right now, a small plane in the middle of the domain is
+  !  selected.
+
+  grid%traj_i    = -9999
+  grid%traj_j    = -9999
+  grid%traj_k    = -9999
+  grid%traj_lat  = -9999
+  grid%traj_long = -9999
+   
+  IF (config_flags%num_traj .gt. 0 .and. config_flags%traj_opt .gt. 0) THEN
+     icount = 1
+     DO j = (jde + jds)/2 - 2, (jde + jds)/2 + 2, 1
+        DO i = (ide + ids)/2 - 2, (ide + ids)/2 + 2, 1
+           IF ( its .LE. i    .and. ite .GE. i   .and.  jts .LE. j    .and. jte .GE. j ) THEN
+              grid%traj_i   (icount) = i
+              grid%traj_j   (icount) = j
+              grid%traj_k   (icount) = 10
+              grid%traj_lat (icount) = grid%xlat(i,j)
+              grid%traj_long(icount) = grid%xlong(i,j)
+           END IF
+
+#ifdef DM_PARALLEL
+           grid%traj_i   (icount) = wrf_dm_max_real ( grid%traj_i   (icount) )
+           grid%traj_j   (icount) = wrf_dm_max_real ( grid%traj_j   (icount) )
+           grid%traj_k   (icount) = wrf_dm_max_real ( grid%traj_k   (icount) )
+           grid%traj_lat (icount) = wrf_dm_max_real ( grid%traj_lat (icount) )
+           grid%traj_long(icount) = wrf_dm_max_real ( grid%traj_long(icount) )
+#endif
+
+           icount = icount + 1
+           IF (icount .GT. config_flags%num_traj) THEN
+              EXIT
+           END IF
+        END DO
+     END DO 
+  END IF
+
+
+
  END SUBROUTINE init_domain_rk
 
    SUBROUTINE init_module_initialize
@@ -653,6 +693,7 @@ CONTAINS
       parameter(n=1000)
       logical debug
       parameter( debug = .true.)
+      character*256 message
 
 ! input sounding data
 
@@ -734,6 +775,11 @@ CONTAINS
             do it=1,10
               pm_input(k) = pm_input(k-1) &
                       - 0.5*dz*(rho_input(k)+rho_input(k-1))*g*qvf1
+              IF(pm_input(k) .LE. 0. )THEN
+                CALL wrf_message("Integrated pressure has gone negative - too cold for chosen height")
+                WRITE(message,*)'k,pm_input(k),h_input(k),th_input(k) = ',k,pm_input(k),h_input(k),th_input(k)
+                CALL wrf_error_fatal ( message )
+              ENDIF
               rho_input(k) = 1./((r/p1000mb)*th_input(k)*qvf*((pm_input(k)/p1000mb)**cvpm))
             enddo
           enddo

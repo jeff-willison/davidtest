@@ -18,6 +18,11 @@ CONTAINS
 #endif
 #if (HWRF==1)
                   ALPHA,                                           &
+                  HPBL2D, EVAP2D, HEAT2D,                          &    !Kwon add FOR SHAL. CON.
+                  VAR_RIC,                                         &    !Kwon for variable Ric
+                  U10,V10,ZNT,MZNT,rc2d,                           &    !Kwon for variable Ric
+                  DKU3D,DKT3D,coef_ric_l,coef_ric_s,xland,         &    !Kwon for variable Ric
+                  pert_pbl, ens_random_seed, ens_pblamp,           &
 #endif
                   ids,ide, jds,jde, kds,kde,                       &
                   ims,ime, jms,jme, kms,kme,                       &
@@ -73,6 +78,8 @@ CONTAINS
 !-- EP1         constant for virtual temperature (R_v/R_d - 1) (dimensionless)
 !-- KARMAN      Von Karman constant
 !-- ALPHA       boundary depth scaling factor
+!-- VAR_RIC     Flag for using variable Ric or not (=1: variable Ric, =0: constant Ric)
+!-- RO          Surface Rossby number
 !-- ids         start index for i in domain
 !-- ide         end index for i in domain
 !-- jds         start index for j in domain
@@ -96,6 +103,24 @@ CONTAINS
 #if (NMM_CORE==1)
       LOGICAL , INTENT(IN)::            DISHEAT                         !  gopal's doing
 #endif
+
+#if (HWRF==1)
+      REAL,  DIMENSION(ims:ime, jms:jme), INTENT(OUT) ::              &
+                                        HPBL2D,                         &    !ADDED BY KWON FOR SHALLOW CONV.
+                                        EVAP2D,                         &    !ADDED BY KWON FOR SHALLOW CONV.
+                                        HEAT2D,RC2D,MZNT                     !ADDED BY KWON FOR SHALLOW CONV.
+      REAL,  DIMENSION(ims:ime, jms:jme), INTENT(IN) ::              &
+                                        U10,                         &    !ADDED BY KWON FOR VARIABLE Ric
+                                        V10,XLAND,                   &    !ADDED BY KWON FOR VARIABLE Ric
+                                        ZNT                               !ADDED BY KWON FOR VARIABLE Ric
+      REAL,  DIMENSION(ims:ime, jms:jme, kms:kme), INTENT(OUT) :: DKU3D,DKT3D  
+      REAL,    INTENT(IN) :: VAR_RIC,coef_ric_l,coef_ric_s                   !ADDED BY KWON
+      integer,intent(in) :: ens_random_seed
+      real,intent(in) :: ens_pblamp
+      logical,intent(in) :: pert_pbl
+#endif
+
+
 
       INTEGER, INTENT(IN) ::            ids,ide, jds,jde, kds,kde,      &
                                         ims,ime, jms,jme, kms,kme,      &
@@ -166,6 +191,9 @@ CONTAINS
                                         T1,                             &
                                         TAU,                            &
                                         dishx,                          &
+#if (HWRF==1)
+                                        dku,dkt,   &       !Kwon for diffusivity
+#endif
                                         U1,                             &
                                         V1
 
@@ -193,8 +221,10 @@ CONTAINS
                                         QSS,                            &
                                         RBSOIL,                         &
                                         RCL,                            &
+                                        XLAND1,                         &
                                         SPD1,                           &
                                         STRESS,                         &
+                                        RO,rbcr,                        &  !Kwon for variablr Ric(surface Rossby number)
                                         TSEA
 
       REAL     (kind=kind_phys) ::                                      &
@@ -247,12 +277,24 @@ CONTAINS
         QSS(i)=QV3D(i,kts,j)               ! not used in moninp so set to qv3d for now
         HEAT(i)=HFX(i,j)/CPM*RRHOX
         EVAP(i)=QFX(i,j)*RRHOX
+        XLAND1(i) = 0.0        
+#if (HWRF==1)
+! Kwon FOR NEW SHALLOW CONVECTION 
+        HEAT2D(i,j)=HFX(i,j)/CPM*RRHOX
+        EVAP2D(i,j)=QFX(i,j)*RRHOX
+        XLAND1(i) = XLAND(I,J)
+#endif
+!
         STRESS(i)=KARMAN*KARMAN*WSPD(i,j)*WSPD(i,j)/(FMTMP*FMTMP)
         SPD1(i)=WSPD(i,j)
         PRSI(i,kts)=PSFC(i,j)*.001
         PHII(I,kts)=0.
         RCL(i)=1.
         RBSOIL(I)=BR(i,j)
+#if (HWRF==1)
+! Kwon for variable Ric   : Ro=W10/(f*zo): surface Rossby number
+       Ro(I)=SQRT(U10(I,J)**2 + V10(I,J)**2) / (1.E-4 * MZNT(I,J))
+#endif
       ENDDO
 
       DO k=kts,kte
@@ -308,12 +350,16 @@ CONTAINS
           ENDDO
         ENDDO
       ENDDO
-
+!
       CALL MONINP(IM,IM,KX,NTRAC,DV,DU,TAU,RTG,U1,V1,T1,Q1,             &
                   PSK,RBSOIL,FM,FH,TSEA,QSS,HEAT,EVAP,STRESS,           &
                   SPD1,KPBL,PRSI,DEL,PRSL,PRSLK,PHII,PHIL,RCL,          &
-                  DELTIM,DUSFC,DVSFC,DTSFC,DQSFC,HPBL,HGAMT,HGAMQ,      &
-                  ALPHA)
+                  DELTIM,DUSFC,DVSFC,DTSFC,DQSFC,HPBL,HGAMT,            &
+#if (HWRF==1)
+               VAR_RIC,Ro,DKU,DKT,coef_ric_l,coef_ric_s,xland1,  &
+              pert_pbl, ens_random_seed, ens_pblamp,             &
+#endif
+                RBCR,HGAMQ,ALPHA)
 
 !============================================================================
 !    ADD  IN  DISSIPATIVE HEATING .... v*dv. This is Bob's doing
@@ -360,8 +406,32 @@ CONTAINS
         WSPD(i,j)=SQRT(U3D(I,KTS,J)*U3D(I,KTS,J)+                       &
                        V3D(I,KTS,J)*V3D(I,KTS,J))+1.E-9
         PBL(i,j)=HPBL(i)
+#if (HWRF==1)
+!Kwon For new shallow convection
+        HPBL2D(i,j)=HPBL(i)
+        rc2D(i,j)=rbcr(i)
+#endif
+!
         KPBL2D(i,j)=kpbl(i)
       ENDDO
+! INITIALIZE DKU3D and DKT3D  (3D momentum and thermal diffusivity for
+! diagnostics)
+!
+#if (HWRF==1)
+     DO i=its,ite
+     DO k=kts,kte
+      DKU3D(I,J,K) = 0.
+      DKT3D(I,J,K) = 0.
+     ENDDO
+     ENDDO
+
+     DO i=its,ite
+     DO k=kts,kte-1
+      DKU3D(I,J,K) = DKU(I,K)
+      DKT3D(I,J,K) = DKT(I,K)
+     ENDDO
+     ENDDO
+#endif
 
     ENDDO
 
@@ -440,9 +510,13 @@ CONTAINS
       SUBROUTINE MONINP(IX,IM,KM,ntrac,DV,DU,TAU,RTG,                   &
      &     U1,V1,T1,Q1,                                                 &
      &     PSK,RBSOIL,FM,FH,TSEA,QSS,HEAT,EVAP,STRESS,SPD1,KPBL,        &
-!    &     PSK,RBSOIL,CD,CH,FM,FH,TSEA,QSS,DPHI,SPD1,KPBL,              &
      &     PRSI,DEL,PRSL,PRSLK,PHII,PHIL,RCL,DELTIM,                    &
-     &     DUSFC,DVSFC,DTSFC,DQSFC,HPBL,HGAMT,HGAMQ,ALPHA)
+     &     DUSFC,DVSFC,DTSFC,DQSFC,HPBL,HGAMT,                     &
+#if (HWRF==1)
+           VAR_RIC,Ro,DKU,DKT,coef_ric_l,coef_ric_s,xland1,   &
+           pert_pbl, ens_random_seed, ens_pblamp,             &
+#endif
+           RBCR,HGAMQ,ALPHA)
 !
       USE MODULE_GFS_MACHINE, ONLY : kind_phys
       USE MODULE_GFS_PHYSCONS, grav => con_g, RD => con_RD, CP => con_CP &
@@ -459,6 +533,13 @@ CONTAINS
 !
       real(kind=kind_phys) DELTIM
       real :: ALPHA
+
+#if (HWRF==1)
+      real :: VAR_RIC,coef_ric_l,coef_ric_s
+      integer,intent(in) :: ens_random_seed
+      real,intent(in) :: ens_pblamp
+      logical,intent(in) :: pert_pbl
+#endif
       real(kind=kind_phys) DV(IM,KM),     DU(IM,KM),                    &
      &                     TAU(IM,KM),    RTG(IM,KM,ntrac),             &
      &                     U1(IX,KM),     V1(IX,KM),                    &
@@ -475,7 +556,10 @@ CONTAINS
      &                     RCL(IM),       DUSFC(IM),                    &
      &                     dvsfc(IM),     dtsfc(IM),                    & 
      &                     DQSFC(IM),     HPBL(IM),                     &
-     &                     HGAMT(IM),     hgamq(IM)
+     &                     HGAMT(IM),     hgamq(IM), RBCR(IM)
+#if (HWRF==1)
+real(kind=kind_phys) RO(IM),xland1(IM)
+#endif
 !
 !    Locals
 !
@@ -490,11 +574,11 @@ CONTAINS
 !
       real(kind=kind_phys) RDZT(IM,KM-1),                               &
      &                     ZI(IM,KM+1),     ZL(IM,KM),                  &
-     &                     DKU(IM,KM-1),    DKT(IM,KM-1), DKO(IM,KM-1), &
+     &                     DKO(IM,KM-1),                                &
      &                     AL(IM,KM-1),     AD(IM,KM),                  &
      &                     AU(IM,KM-1),     A1(IM,KM),                  &
      &                     A2(IM,KM),       THETA(IM,KM),               &
-     &                     AT(IM,KM*(ntrac-1))
+     &                     AT(IM,KM*(ntrac-1)),DKU(IM,KM-1),DKT(IM,KM-1),WSPM(IM,KM-1) ! RGF added WSPM
       logical              pblflg(IM),   sfcflg(IM), stable(IM)
 !
       real(kind=kind_phys) aphi16,  aphi5,  bet1,   bvf2,               &
@@ -505,7 +589,7 @@ CONTAINS
      &                     dtodsu,  dw2,    dw2min, g,                  &
      &                     gamcrq,  gamcrt, gocp,   gor, gravi,         &
      &                     hol,     pfac,   prmax,  prmin, prinv,       &
-     &                     prnum,   qmin,   qtend,  rbcr,               & 
+     &                     prnum,   qmin,   qtend,                      & 
      &                     rbint,   rdt,    rdz,    rdzt1,              &
      &                     ri,      rimin,  rl2,    rlam,               &
      &                     rone,   rzero,  sfcfrac,                     &
@@ -514,18 +598,36 @@ CONTAINS
      &                     tvu,     utend,  vk,     vk2,                &
      &                     vpert,   vtend,  xkzo,   zfac,               &
      &                     zfmin,   zk,     tem1
+      integer kLOC ! RGF
+      real xDKU    ! RGF
 !
       PARAMETER(g=grav)
       PARAMETER(GOR=G/RD,GOCP=G/CP)
       PARAMETER(CONT=1000.*CP/G,CONQ=1000.*HVAP/G,CONW=1000./G)
       PARAMETER(RLAM=150.,VK=0.4,VK2=VK*VK,PRMIN=1.0,PRMAX=4.)
       PARAMETER(DW2MIN=0.0001,DKMIN=1.0,DKMAX=1000.,RIMIN=-100.)
-      PARAMETER(RBCR=0.5,CFAC=7.8,PFAC=2.0,SFCFRAC=0.1)
+      PARAMETER(CFAC=7.8,PFAC=2.0,SFCFRAC=0.1)
       PARAMETER(QMIN=1.E-8,XKZO=1.0,ZFMIN=1.E-8,APHI5=5.,APHI16=16.)
 !     PARAMETER(GAMCRT=3.,GAMCRQ=2.E-3)
       PARAMETER(GAMCRT=3.,GAMCRQ=0.)
       PARAMETER(RZERO=0.,RONE=1.)
       PARAMETER(IUN=84)
+#if HWRF==1
+      real*8 :: ran1           !zhang
+      real :: rr 
+      logical,save :: pert_pbl_local !zhang
+      integer,save :: ens_random_seed_local !zhang
+      real,save :: ens_pblamp_local   !zhang
+      data ens_random_seed_local/0/
+!zz      print*, 'zhang in pbl==========='
+      if ( ens_random_seed_local .eq. 0 ) then
+         pert_pbl_local=pert_pbl
+         ens_random_seed_local=ens_random_seed
+         ens_pblamp_local=ens_pblamp
+!zz      print*, "zhang in pbl= one time ", pert_pbl_local, ens_random_seed_local, ens_pblamp_local
+      endif
+!zz      print*, "zhang in pbl=",pert_pbl_local, ens_random_seed_local, ens_pblamp_local
+#endif
 !
 !
 !-----------------------------------------------------------------------
@@ -559,6 +661,23 @@ CONTAINS
 !!!   LATD = 0
       LOND = 0
       ENDIF
+!
+! define critical Richardson number    by KWON: Vickers and Mahart(2004) J. Appl. Meteo.
+!  coef_ric=0.16 originally but it may too small: controled by namelist=0.25
+!  Land and Ocean points are treated differently
+!  by Kwon
+!
+     do i=1,im
+     RBCR(I) = 0.25
+#if (HWRF==1)
+     IF(var_ric.eq.1.) THEN             
+      IF(xland1(i).eq.1)  RBCR(I) = coef_ric_l*(1.E-7*Ro(I))**(-0.18)
+      IF(xland1(i).eq.2)  RBCR(I) = coef_ric_s*(1.E-7*Ro(I))**(-0.18)
+!      write(0,*) 'xland1 coef_ric_l coef_ric_s ',xland1(i),coef_ric_l,coef_ric_s
+     ENDIF
+     IF(RBCR(I).GT.0.5) RBCR(I)=0.5    !set upper limit Suggsted by Han
+#endif
+     enddo
 !
       gravi = 1.0 / grav
       DT    = 2. * DELTIM
@@ -643,19 +762,19 @@ CONTAINS
              SPDK2 = MAX(RCL(i)*(U1(i,k)*U1(i,k)+V1(i,k)*V1(i,k)),RONE)
              RBUP(I)   = (THEKV(I)-THE1V(I))*(G*ZL(I,k)/THE1V(I))/SPDK2
              KPBL(I)   = K
-             STABLE(I) = RBUP(I).GT.RBCR
+             STABLE(I) = RBUP(I).GT.RBCR(I)
           ENDIF
         ENDDO
       ENDDO
 !
       DO I = 1,IM
          K = KPBL(I)
-         IF(RBDN(I).GE.RBCR) THEN
+         IF(RBDN(I).GE.RBCR(I)) THEN
             RBINT = 0.
-         ELSEIF(RBUP(I).LE.RBCR) THEN
+         ELSEIF(RBUP(I).LE.RBCR(I)) THEN
             RBINT = 1.
          ELSE
-            RBINT = (RBCR-RBDN(I))/(RBUP(I)-RBDN(I))
+            RBINT = (RBCR(I)-RBDN(I))/(RBUP(I)-RBDN(I))
          ENDIF
          HPBL(I) = ZL(I,K-1) + RBINT*(ZL(I,K)-ZL(I,K-1))
          IF(HPBL(I).LT.ZI(I,KPBL(I))) KPBL(I) = KPBL(I) - 1
@@ -729,7 +848,7 @@ CONTAINS
             SPDK2   = MAX(RCL(i)*(U1(i,k)*U1(i,k)+V1(i,k)*V1(i,k)),RONE)
             RBUP(I)   = (THEKV(I)-THERMAL(I))*(G*ZL(I,k)/THE1V(I))/SPDK2
             KPBL(I)   = K
-            STABLE(I) = RBUP(I).GT.RBCR
+            STABLE(I) = RBUP(I).GT.RBCR(I)
           ENDIF
         ENDDO
       ENDDO
@@ -737,14 +856,22 @@ CONTAINS
       DO I = 1,IM
          IF(PBLFLG(I)) THEN
             K = KPBL(I)
-            IF(RBDN(I).GE.RBCR) THEN
+            IF(RBDN(I).GE.RBCR(I)) THEN
                RBINT = 0.
-            ELSEIF(RBUP(I).LE.RBCR) THEN
+            ELSEIF(RBUP(I).LE.RBCR(I)) THEN
                RBINT = 1.
             ELSE
-               RBINT = (RBCR-RBDN(I))/(RBUP(I)-RBDN(I))
+               RBINT = (RBCR(I)-RBDN(I))/(RBUP(I)-RBDN(I))
             ENDIF
             HPBL(I) = ZL(I,K-1) + RBINT*(ZL(I,k)-ZL(I,K-1))
+#if (HWRF==1)
+!zhang adding PBL perturtion
+            if ( pert_pbl_local ) then
+            rr=(2.0*ens_pblamp_local*ran1(ens_random_seed_local)-ens_pblamp_local)
+            print*, "zhang inside the loop", rr, ens_pblamp_local,ens_random_seed_local 
+            HPBL(I) = HPBL(I)*(1.0+rr)
+            endif
+#endif
             IF(HPBL(I).LT.ZI(I,KPBL(I))) KPBL(I) = KPBL(I) - 1
             IF(KPBL(I).LE.1) PBLFLG(I) = .FALSE.
          ENDIF
@@ -753,9 +880,42 @@ CONTAINS
 !
 !     COMPUTE DIFFUSION COEFFICIENTS BELOW PBL
 !
-      DO K = 1, KMPBL
-         DO I=1,IM
-            IF(KPBL(I).GT.K) THEN
+
+#if (HWRF==1)
+! -------------------------------------------------------------------------------------
+! begin RGF modifications
+! this is version MOD05
+
+
+! RGF determine wspd at roughly 500 m above surface, or as close as possible, reuse SPDK2
+!  zi(i,k) is AGL, right?  May not matter if applied only to water grid points
+      if(ALPHA.lt.0)then
+
+       DO I=1,IM
+         SPDK2 = 0.
+         WSPM(i,1) = 0.
+         DO K = 1, KMPBL ! kmpbl is like a max possible pbl height
+          if(zi(i,k).le.500.and.zi(i,k+1).gt.500.)then ! find level bracketing 500 m
+           SPDK2 = SQRT(U1(i,k)*U1(i,k)+V1(i,k)*V1(i,k)) ! wspd near 500 m
+           WSPM(i,1) = SPDK2/0.6  ! now the Km limit for 500 m.  just store in K=1
+           WSPM(i,2) = float(k)  ! height of level at gridpoint i. store in K=2
+!           if(i.eq.25) print *,' IK ',i,k,' ZI ',zi(i,k), ' WSPM1 ',wspm(i,1),' KMPBL ',kmpbl,' KPBL ',kpbl(i)
+          endif
+         ENDDO
+       ENDDO ! i
+
+      endif ! ALPHA < 0
+#endif
+
+
+      DO I=1,IM			! RGF SWAPPED ORDER.  TESTED - NO IMPACT
+         DO K = 1, KMPBL
+
+
+
+! First guess at DKU.  If alpha >= 0, this is the only loop executed
+
+            IF(KPBL(I).GT.K) THEN ! first guess DKU, this is original loop
                PRINV = 1.0 / (PHIH(I)/PHIM(I)+CFAC*VK*.1)
                PRINV = MIN(PRINV,PRMAX)
                PRINV = MAX(PRINV,PRMIN)
@@ -767,8 +927,14 @@ CONTAINS
 !              alpha factor (0-1.0) is multiplied to profile function to reduce the effect
 !              height of the Hurricane Boundary Layer. This is gopal's doing
 !
+
+
                DKU(i,k) = XKZO + WSCALE(I)*VK*ZI(I,K+1)                 &
-     &                         *ALPHA* ZFAC**PFAC
+     &                         *ABS(ALPHA)* ZFAC**PFAC 
+! if alpha = -1, the above provides the first guess for DKU, based on assumption alpha = +1
+! 		(other values of alpha < 0 can also be applied)
+! if alpha > 0, the above applies the alpha suppression factor and we are finished
+!               if(i.eq.25) print *,' I25 K ',k,' ORIG DKU ',dku(i,k)
                DKT(i,k) = DKU(i,k)*PRINV
                DKO(i,k) = (DKU(i,k)-XKZO)*PRINV
                DKU(i,k) = MIN(DKU(i,k),DKMAX)
@@ -776,9 +942,79 @@ CONTAINS
                DKT(i,k) = MIN(DKT(i,k),DKMAX)
                DKT(i,k) = MAX(DKT(i,k),DKMIN)
                DKO(i,k) = MAX(RZERO, MIN(DKMAX, DKO(i,k)))
-            ENDIF
-         ENDDO
-      ENDDO
+              endif ! KPBL
+        ENDDO ! K
+
+
+#if (HWRF==1)
+! possible modification of first guess DKU, under certain conditions
+! (1) this applies only to columns over water
+
+        IF(xland1(i).eq.2)then ! sea only
+
+! (2) alpha test
+! if alpha < 0, find alpha for each column and do the loop again
+! if alpha > 0, we are finished
+
+
+        if(alpha.lt.0)then      ! variable alpha test
+
+! k-level of layer around 500 m
+            kLOC = INT(WSPM(i,2)) 
+!            print *,' kLOC ',kLOC,' KPBL ',KPBL(I)
+
+! (3) only do  this IF KPBL(I) >= kLOC.  Otherwise, we are finished, with DKU as if alpha = +1
+
+          if(KPBL(I).gt.kLOC)then
+
+            xDKU = DKU(i,kLOC)     ! Km at k-level
+
+! (4) DKU check.
+! WSPM(i,1) is the KM cap for the 500-m level. 
+!  if DKU at 500-m level < WSPM(i,1), do not limit Km ANYWHERE.  Alpha = abs(alpha).  No need to recalc.
+!  if DKU at 500-m level > WSPM(i,1), then alpha = WSPM(i,1)/xDKU for entire column
+            if(xDKU.ge.WSPM(i,1)) then ! ONLY if DKU at 500-m exceeds cap, otherwise already done
+
+
+            WSPM(i,3) = WSPM(i,1)/xDKU  ! ratio of cap to Km at k-level, store in WSPM(i,3)
+            WSPM(i,4) = amin1(WSPM(I,3),1.0) ! this is new column alpha. cap at 1. ! should never be needed
+
+!    if(i.eq.25) print *,' I25 kLOC ',kLOC,' xDKU ',xDKU,' WSPM1 ',WSPM(i,1),' WSPM3 ',WSPM(i,3),' WSPM4 ',WSPM(i,4)
+
+            DO K = 1, KMPBL ! now go through K loop again
+             IF(KPBL(I).GT.K) THEN
+               PRINV = 1.0 / (PHIH(I)/PHIM(I)+CFAC*VK*.1)
+               PRINV = MIN(PRINV,PRMAX)
+               PRINV = MAX(PRINV,PRMIN)
+!              ZFAC = MAX((1.-(ZI(I,K+1)-ZL1(I))/                       &
+!    &                (HPBL(I)-ZL1(I))), ZFMIN)
+               ZFAC = MAX((1.-(ZI(I,K+1)-ZL(I,1))/                      &
+     &                (HPBL(I)-ZL(I,1))), ZFMIN)
+
+               DKU(i,k) = XKZO + WSCALE(I)*VK*ZI(I,K+1)                 &
+     &                         *WSPM(i,4)* ZFAC**PFAC ! recalculated DKU using column alpha
+!               if(i.eq.25) print *,' I25 K ',k,' DKU AFTER ',dku(i,k)
+
+            
+               DKT(i,k) = DKU(i,k)*PRINV
+               DKO(i,k) = (DKU(i,k)-XKZO)*PRINV
+               DKU(i,k) = MIN(DKU(i,k),DKMAX)
+               DKU(i,k) = MAX(DKU(i,k),DKMIN)
+               DKT(i,k) = MIN(DKT(i,k),DKMAX)
+               DKT(i,k) = MAX(DKT(i,k),DKMIN)
+               DKO(i,k) = MAX(RZERO, MIN(DKMAX, DKO(i,k)))
+            ENDIF ! KPBL
+          ENDDO ! DO K (RGF ALTERED)
+         endif ! xDKU.ge.WSPM(i,1)
+         endif ! KPBL(I).ge.kLOC
+        endif ! alpha < 0
+        endif ! xland1 = 2
+#endif
+      ENDDO ! DO I
+
+! end RGF modifications
+! -------------------------------------------------------------------------------------
+
 !
 !     COMPUTE DIFFUSION COEFFICIENTS OVER PBL (FREE ATMOSPHERE)
 !
@@ -835,6 +1071,7 @@ CONTAINS
             ENDIF
          ENDDO
       ENDDO
+
 !
 !     COMPUTE TRIDIAGONAL MATRIX ELEMENTS FOR HEAT AND MOISTURE
 !

@@ -51,7 +51,7 @@
     use PARA_FILE
     implicit none
     integer, save :: NFRACT = 0, &  !add for fractional cloud:=1, fraction; =0, no
-   &                 NAERO  = 1, &  !add for aerosol: =0, no aerosol; = 1, aerosol uniform value included; =2, get data from file
+   &                 NAERO  = 0, &  !add for aerosol: =0, no aerosol; = 1, aerosol uniform value included; =2, get data from file
    &                 NINHO = 0 , &  ! if =0, horizontal homogenious; = 1, inhomogeneous
    &                 NINHO_VERT, &
    &                 NPDE   = 2, &  !add for ice crystal size parameterization:
@@ -7975,6 +7975,8 @@ MODULE module_ra_FLG
 !    & ,    ulwtop, ulwbot, dlwbot, netlwstr, netlwbot  &
      & ,   uswtop, ulwtop,NETSWBOT,DLWBOT,DSWBOT & 
      & ,   deltat,dtshort, dtlongwv       &
+!-- amontornes-bcodina (2014-04-29): return direct and diffuse fluxes at surface
+     & ,   swddir,swddif,swddni           &
 !-- for optional aerosol input
 !     & ,   tau_aer_2D, tau_aer_3D, fraca_in      &
 !-- change over
@@ -8009,7 +8011,10 @@ MODULE module_ra_FLG
 !* USWTOP = upward solar flux at TOA (down-up)
 !* DSWTOP = net downward solar flux at TOA (down-up)
 !* DSWBOT = net downward solar flux at surface (down-up)
-!* SWINC = solar flux incident at TOA
+!* swddir = direct horizontal irradiance (amontornes-bcodina, 2014-04-29)
+!* swddif = diffuse irradiance (amontornes-bcodina, 2014-04-29)
+!* swddni = direct normal irradiance (amontornes-bcodina, 2014-04-29)
+!* SWINC  = solar flux incident at TOA
 !* DELTAT = total column physics increment to theta
 !
 !* ULWBOT = upward IR flux at surface
@@ -8169,6 +8174,10 @@ MODULE module_ra_FLG
         real xlat(ims:idim,jms:jdim), xlong(ims:idim, jms:jdim)
 
 	real dswtop(ims:idim,jms:jdim) , dswbot(ims:idim,jms:jdim)
+!c--- amontornes-bcodina (2014-04-29): for DHI, DIF and DNI outputs
+	real swddir(ims:idim,jms:jdim)
+        real swddif(ims:idim,jms:jdim)
+	real swddni(ims:idim,jms:jdim)
 	real uswtop(ims:idim,jms:jdim)  	
 	real netswbot(ims:idim,jms:jdim)  	
 	real swinc(ims:idim,jms:jdim)  	
@@ -8211,6 +8220,8 @@ MODULE module_ra_FLG
 	real fds(kmax), fus(kmax), dts(kmax-1)
 	real fdir(kmax), fuir(kmax), dtir(kmax-1)
 	real fd(kmax), fu(kmax), dt_rad(kmax-1)
+!C-- amontornes-bcodina (2014-04-29): direct and diffuse fluxes
+	real fdsdir(kmax), fdsdif(kmax)
 
 !***************************************************************************
 !* Use Fu-Liou radiation routine and algorithm
@@ -8320,6 +8331,10 @@ MODULE module_ra_FLG
 	  dts(k)=rzero
 	  dtir(k)=rzero
 	  dt_rad(k)=rzero
+!C--- amontornes-bcodina (2014-04-29): direct and diffuse fluxes
+          fdsdir(k)=rzero
+          fdsdif(k)=rzero
+
 	enddo VERTICAL_PROFILE
 
 	    fds(kmax)=rzero
@@ -8328,7 +8343,9 @@ MODULE module_ra_FLG
 	    fuir(kmax)=rzero
 	    fd(kmax)=rzero
 	    fu(kmax)=rzero
-
+!C--- amontornes-bcodina (2014-04-29): direct and diffuse fluxes
+            fdsdir(kmax)=rzero
+            fdsdif(kmax)=rzero
 	    o3ij(kmax) = rzero
 
 
@@ -8370,19 +8387,10 @@ MODULE module_ra_FLG
 ! NEED HYDROSTATIC PRESSURE HERE (MONOTONIC CHANGE WITH HEIGHT)
 ! PHYD REPLACES P8W, PHYDMID REPLACES P3D
         PHYD(kts) = peven(I,kts,J)
-! first guess
-        DO K = KTS,KTE
-          PHYD(K+1) = PHYD(K) - G*air_den(I,K,J)*DZ3D(I,K,J)
-        ENDDO
-! correction factor FP to match p8w(I,kts,J)-p8w(I,kte,J)
-        FP = (peven(I,kts,J)-peven(I,kte,J))/(PHYD(KTS)-PHYD(KTE))
-! final pass
-        DO K = KTS,KTE
-          PHYD(K+1) = PHYD(K) - G*air_den(I,K,J)*DZ3D(I,K,J)*FP
-!            PHYDMID(K)= 0.5*(PHYD(K)+PHYD(K+1))
-        ENDDO
 
-         
+        DO K = KTS,KTE
+          PHYD(K+1) = peven(I,k+1,J) 
+        ENDDO
 
 !	      pij(1) = peven(i,kmax,j)/100.
 !	      pij(kmax) = peven(i,1,j)/100.
@@ -8536,7 +8544,7 @@ MODULE module_ra_FLG
 !C******************************************************************
 !C--- NPDE=1, papa. in terms of IWC & T (Gu & Liou, 2006)
 !C***********************************************************************
-          if (NPDE.eq.1.and.piwc(k).gt.0.) then
+          if (NPDE.eq.1.and.piwc(k) .gt. 1.e-7) then
 !C--- for temperature between 213K and 253K
 		    if (degrees(i,NK,j).lt.253.         &
                     .and.degrees(i,NK,j).gt.213.) then  !mchen
@@ -8563,7 +8571,7 @@ MODULE module_ra_FLG
 !C***********************************************************************
 !C---- NPDE=2, new de para. in terms of iwc (Liou et al. 2008)
 !C***********************************************************************
-          else if (NPDE.eq.2.and.piwc(k).gt.0.) then
+          else if (NPDE.eq.2.and.piwc(k) .gt. 1.e-7) then
 !C--- for tropics
 !	        if (j.ge.17.and.j.le.28) ncoef = 1
 	    if (abs(xlat(i,j)).lt.30.) ncoef = 1
@@ -8590,6 +8598,7 @@ MODULE module_ra_FLG
                            +cmin(ncoef)*temp_i**2.
 
 !C--- calculate de
+
             pde_mean = exp(pde_mean)
             pde_max = exp(pde_max)
             pde_min = exp(pde_min)
@@ -8918,6 +8927,8 @@ MODULE module_ra_FLG
 !C--- output: fluxes and heating rates
     &  ,         fds, fus, dts, fdir, fuir, dtir   &
     &  ,         fd, fu, dt_rad                    &
+!C--- amontornes-bcodina (2014-04-29): new to save the direct and diffuse fluxes
+    &   ,        fdsdir, fdsdif                    &
     &  )
 !CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
 
@@ -8929,7 +8940,17 @@ MODULE module_ra_FLG
 !*** net solar at sfc 
         netswbot(i,j) = fds(kmax) - fus(kmax)
 !*** downward solar at sfc 
-        dswbot(i,j) = fds(kmax) 
+        dswbot(i,j) = fds(kmax)
+!*** DNI, DIR and DIF values (amontornes-bcodina 2014-04-29)
+     if(u0ij .gt. 0.0001) then
+	swddni(i,j) = fdsdir(kmax)/u0ij
+	swddir(i,j) = fdsdir(kmax)
+	swddif(i,j) = fdsdif(kmax)
+     else
+	swddni(i,j) = 0.
+	swddir(i,j) = 0.
+	swddif(i,j) = 0.
+     endif	
 !*** downward IR at sfc 
         dlwbot(i,j) = fdir(kmax)
 !*** upward IR at sfc
@@ -9081,6 +9102,8 @@ MODULE module_ra_FLG
    &   ,           fdsij, fusij, dtsij               &
    &   ,           fdirij, fuirij, dtirij            &
    &   ,           fdij, fuij, dtij                  &
+!C--- amontornes-bcodina (2014-04-29): new to save the direct and diffuse fluxes
+   &   ,           fdsdir, fdsdif                    &
    &   )
 
 !c *********************************************************************
@@ -9168,6 +9191,8 @@ MODULE module_ra_FLG
 !C--- variables in the offline version      
     real, dimension(nv1) :: pp, pt, ph, po
     real, dimension(nv1) :: fds, fus, fdir, fuir, fd, fu
+!C--- amontornes-bcodina (2014-04-29): new to save the direct and diffuse information
+    real, dimension(nv1) :: fdsdir, fdsdif
     real, dimension(nv)  :: dts, dtir, dt
     real, dimension(nv)  :: piwc, plwc, pgwc, prwc, &
    &                                pde, pre, cldamnt
@@ -9176,6 +9201,8 @@ MODULE module_ra_FLG
     real                 :: pts, u0
       
     real, dimension(nv1)              :: fu1, fd1
+!C--- amontornes-bcodina (2014-04-29): new to save the direct and diffuse information
+    real, dimension(nv1)              :: ffddir,ffdif
     real                              :: bf(nv1), bs
     real, dimension(nv)   :: wc1, wc2, wc3, wc4, wc, tt
 ! -- add for partial clouds
@@ -9244,6 +9271,9 @@ MODULE module_ra_FLG
 	  fus(i) = 0.0
 	  fdir(i) = 0.0
 	  fuir(i) = 0.0
+!C--- amontornes-bcodina (2014-04-29): Added for direct and diffuse computations
+	  fdsdir(i) = 0.0
+	  fdsdif(i) = 0.0
 10	end do
     
     as = asij
@@ -9429,8 +9459,9 @@ MODULE module_ra_FLG
 !c 11/4/95 (begin)
                   if ( ib .le. mbs ) then
                     if ( fourssl ) then
+!c amontornes-bcodina (2014-04-29): this line was modified to introduce the direct and diffuse fluxes
                       call qfts ( nv,nv1,ib, as(ib), u0, f0, &
-                     &            wc1,wc2,wc3,wc4,wc,tt,fu1,fd1 )
+                     &            wc1,wc2,wc3,wc4,wc,tt,fu1,fd1,ffddir,ffdif )
                     endif
                     if ( twossl ) then
                       quadra = .false.
@@ -9443,7 +9474,10 @@ MODULE module_ra_FLG
 !                  fds(i) = fds(i) + fd1(i) * hk
 !                 fus(i) = fus(i) + fu1(i) * hk
                       fds(i) = fds(i) + fd1(i) * hk * area
-                      fus(i) = fus(i) + fu1(i) * hk * area           
+                      fus(i) = fus(i) + fu1(i) * hk * area
+!c amontornes-bcodina (2014-04-29): this line was added for the direct and diffuse outputs
+		      fdsdir(i) = fdsdir(i) + ffddir(i) * hk * area
+		      fdsdif(i) = fdsdif(i) + ffdif(i)  * hk * area           
 40                  end do
                   else
                     if ( foursir ) then
@@ -9485,9 +9519,13 @@ MODULE module_ra_FLG
       do i = 1, nv1
         fds(i) = fds(i) * fuq1
         fus(i) = fus(i) * fuq1
+!c amontornes-bcodina (2014-04-29): direct and diffuse fluxes
+        fdsdir(i) = fdsdir(i) * fuq1
+        fdsdif(i) = fdsdif(i) * fuq1
         fuir(i) = fuir(i) + fuq2
         fd(i) = fds(i) + fdir(i)
         fu(i) = fus(i) + fuir(i)
+
 !C--- assign result to output variables
 	    fdsij(i) = fds(i)
 	    fusij(i) = fus(i)
@@ -10742,7 +10780,7 @@ MODULE module_ra_FLG
 
       subroutine water_fl ( nv,nv1,ib,pre,plwc,pde,piwc,dz,tw,ww,www )
 !c *********************************************************************
-       !c tw, ww, and www are the optical depth, single scattering albedo, &
+!c tw, ww, and www are the optical depth, single scattering albedo, &
 !c and expansion coefficients of the phase function ( 1, 2, 3, and
 !c 4) due to the Mie scattering of water clouds for a given layer. 
 !c By using the mean single scattering properties of the eight drop
@@ -10772,7 +10810,7 @@ MODULE module_ra_FLG
           www(i,3) = 0.0
           www(i,4) = 0.0
         else
-          if ( pre(i) .lt. re(1) ) then
+          if ( pre(i) .le. re(1) ) then
 ! A cloud with the effective radius smaller than 4.18 um is assumed
 ! to have an effective radius of 4.18 um with respect to the single
 ! scattering properties.  
@@ -10786,7 +10824,7 @@ MODULE module_ra_FLG
             www(i,2) = 5.0 * x2
             www(i,3) = 7.0 * x3
             www(i,4) = 9.0 * x4
-          elseif ( pre(i) .gt. re(nc) ) then
+          elseif ( pre(i) .ge. re(nc) ) then
 ! A cloud with the effective radius larger than 31.23 um is assumed
 ! to have an effective radius of 31.18 um with respect to the single
 ! scattering properties.  
@@ -10801,9 +10839,9 @@ MODULE module_ra_FLG
             www(i,3) = 7.0 * x3
             www(i,4) = 9.0 * x4
           else
-            j = 1
+            j = nc
             do while (pre(i) .lt. re(j))
-              j = j + 1
+              j = j - 1
             end do
             tw(i) = dz(i) * plwc(i) * ( bz(j,ib) / fl(j) +  &
      &             ( bz(j+1,ib) / fl(j+1) - bz(j,ib) / fl(j) ) /  &
@@ -13528,7 +13566,9 @@ MODULE module_ra_FLG
 !c ww1(nv), ww2(nv), ww3(nv), ww4(nv), ww(nv), and tt(nv)
 !c through common statement 'dfsin'.
 !c **********************************************************************
-      subroutine qfts ( nv, nv1, ib,as,u0,f0,ww1,ww2,ww3,ww4,ww,tt,ffu,ffd )
+
+!c amontornes-bcodina (2014-04-29): this line modified to introduce the direct and diffuse fluxes
+      subroutine qfts ( nv, nv1, ib,as,u0,f0,ww1,ww2,ww3,ww4,ww,tt,ffu,ffd,ffddir,ffdif )
 !# include "para.file"
       USE PARA_FILE
 !    common /dis/ a(4)
@@ -13539,6 +13579,8 @@ MODULE module_ra_FLG
       real, intent(in)             :: as, u0, f0
       real, intent(in), dimension(nv)  :: ww1, ww2, ww3, ww4, ww, tt
       real, intent(out), dimension(nv1) :: ffu, ffd
+!c amontornes-bcodina (2014-04-29): this line was added to introduce the direct and diffuse fluxes
+      real, intent(out), dimension(nv1) :: ffddir,ffdif
       real, dimension(nv)        :: w1, w2, w3, w4, w, t, u0a, f0a
       real    :: fk1(nv), fk2(nv), a4(4,4,nv),  &
      &           z4(4,nv), g4(4,nv)
@@ -13594,6 +13636,9 @@ MODULE module_ra_FLG
 40      end do
         ffu(i)= fw1 * fi(2) + fw2 * fi(1) 
         ffd(i)= fw1 * fi(3) + fw2 * fi(4) + fw3 * y
+!c amontornes-bcodina (2014-04-29): save direct and diffuse terms
+        ffddir(i) = fw3 * y					! amontornes-bcodina Direct downward flux
+        ffdif(i)  = ffd(i)-ffddir(i)                            ! amontornes-bcodina Diffuse downward flux
 10    end do
       return
       end subroutine
@@ -13792,12 +13837,13 @@ MODULE module_ra_FLG
       endif
       x = exp ( - fq * ( t1 - t0 ) )
       z = lamda * lamda - fq * fq
-! -- change by Yu Gu, 11/15/01
-!      if (abs(z).lt.1.e-4) then
-!      if (z.ge.0.) z = 1.e-4
-!      if (z.lt.0.) z = -1.e-4
-!      endif
-      if(abs(z).le.1.e-4) z = 1.e-4
+! -- change by Yu Gu, 11/15/01; changed back in 3.5
+      if (abs(z).lt.1.e-4) then
+       if (z.ge.0.) z = 1.e-4
+       if (z.lt.0.) z = -1.e-4
+      endif
+! -- the following line is commented out in 3.5
+!     if(abs(z).le.1.e-4) z = 1.e-4
 ! -- cgange over
       cadd0 = fw * ( ( gamma1 - fq ) * alfa + &
      &          beta * gamma2 ) / z
@@ -14154,13 +14200,13 @@ MODULE module_ra_FLG
      &             lamdan,gamman,caddn,cminn, &
      &             caddn0,cminn0,aa,bb,expn,g1g2n )
       do i = 1, n
-! --- change by Yu Gu, 11/15/01
+! --- change by Yu Gu, 11/15/01; changed back in 3.5
         xgy = lamdan(i)*lamdan(i) - beta(i) * beta(i)
-!           if (abs(xgy).lt.1.e-4) then
-!      if (xgy.ge.0.) xgy = 1.e-4
-!      if (xgy.lt.0.) xgy = -1.e-4
-!      endif
-       if(abs(xgy).le.1.e-4) xgy = 1.e-4   !mchen
+       if (abs(xgy).lt.1.e-4) then
+         if (xgy.ge.0.) xgy = 1.e-4
+         if (xgy.lt.0.) xgy = -1.e-4
+       endif
+!      if(abs(xgy).le.1.e-4) xgy = 1.e-4   !mchen
         x = 2.0 * ( 1.0 - w(i) ) * w(i) / xgy
 !          x = 2.0 * ( 1.0 - w(i) ) * w(i) / ( lamdan(i) *
 !     &         lamdan(i) - beta(i) * beta(i) )
@@ -14847,7 +14893,7 @@ MODULE module_ra_FLG
         z=0.
         m=nv
         iq=0
-        do while (iq.eq.0)
+        do while (iq.eq.0 .and. m.ge.1)
           ht(m)=(z*2.+dz(m))/2.
           z=z+dz(m)
           if (z.gt.15.) then

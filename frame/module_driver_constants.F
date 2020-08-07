@@ -1,7 +1,7 @@
 !WRF:DRIVER_LAYER:CONSTANTS
 !
 !  This MODULE contains all of the constants used in the model.  These
-!  are separated by uage within the code.
+!  are separated by usage within the code.
 
 MODULE module_driver_constants
 
@@ -18,7 +18,7 @@ MODULE module_driver_constants
    INTEGER , PARAMETER :: DATA_ORDER_YX = DATA_ORDER_YXZ
 
 
-#include <model_data_order.inc>
+#include "model_data_order.inc"
 
    !  1. Following are constants for use in defining maximal values for array
    !     definitions.  
@@ -46,8 +46,25 @@ MODULE module_driver_constants
    INTEGER , PARAMETER :: max_moves       =   50
 
    !  The maximum number of eta levels
+   !DJW 140701 Increased from 501 to 1001 since I can imagine using more than
+   !501 total vertical levels across multiple nested domains. Now that the
+   !code is modified to allow specification of all domains eta_levels using a
+   !array of length max_eta, this will need to be larger.  I'll also add a check
+   !in module_initialize_real to ensure we don't exceed this value.
 
-   INTEGER , PARAMETER :: max_eta         =   501
+   INTEGER , PARAMETER :: max_eta         =   1001
+
+   !  The maximum number of ocean levels in the 3d U Miami ocean.
+
+   INTEGER , PARAMETER :: max_ocean       =   501
+
+   !  The maximum number of pressure levels to interpolate to, for diagnostics
+
+   INTEGER , PARAMETER :: max_plevs       =   100
+
+   !  The maximum number of height levels to interpolate to, for diagnostics
+
+   INTEGER , PARAMETER :: max_zlevs       =   100
 
    !  The maximum number of trackchem
 
@@ -55,17 +72,30 @@ MODULE module_driver_constants
 
    !  The maximum number of outer iterations (for DA minimisation)
 
-   INTEGER , PARAMETER :: max_outer_iterations = 10
+   INTEGER , PARAMETER :: max_outer_iterations = 100
 
    !  The maximum number of instruments (for radiance DA)
 
    INTEGER , PARAMETER :: max_instruments =   30
 
+   !  The maximum number of obs indexes (for conventional DA obs) 
+
+   INTEGER , PARAMETER :: num_ob_indexes  =   28
+
+
    !  The maximum number of bogus storms
 
    INTEGER , PARAMETER :: max_bogus =  5
 
-   !  2. Following related to driver leve data structures for DM_PARALLEL communications
+   !  The maximum number of fields that can be sent or received in coupled mode
+
+   INTEGER , PARAMETER :: max_cplfld = 20
+
+   !  The maximum number of domains used by the external model with which wrf is communicating in coupled mode
+
+   INTEGER , PARAMETER :: max_extdomains = 5
+
+   !  2. Following related to driver level data structures for DM_PARALLEL communications
 
 #ifdef DM_PARALLEL
    INTEGER , PARAMETER :: max_comms       =   1024
@@ -76,7 +106,7 @@ MODULE module_driver_constants
    !  3. Following is information related to the file I/O.
 
    !  These are the bounds of the available FORTRAN logical unit numbers for the file I/O.
-   !  Only logical unti numbers within these bounds will be chosen for I/O unit numbers.
+   !  Only logical unit numbers within these bounds will be chosen for I/O unit numbers.
 
    INTEGER , PARAMETER :: min_file_unit = 10
    INTEGER , PARAMETER :: max_file_unit = 99

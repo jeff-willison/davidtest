@@ -13,11 +13,10 @@ CONTAINS
                  P_QC,                                              & 
                  MOMMIX, & ! gopal's doing
                  PGCON,sas_mass_flux,                               &
+                 pert_sas, ens_random_seed, ens_sasamp,             &
                  shalconv,shal_pgcon,                               &
                  HPBL2D,EVAP2D,HEAT2D,                              & !Kwon for shallow convection
                  P_QI,P_FIRST_SCALAR,                               & 
-                 CUDT, CURR_SECS, ADAPT_STEP_FLAG,                  &
-                 CUDTACTTIME,                                       & 
                  ids,ide, jds,jde, kds,kde,                         &
                  ims,ime, jms,jme, kms,kme,                         &
                  its,ite, jts,jte, kts,kte                          )
@@ -121,6 +120,9 @@ CONTAINS
       REAL, OPTIONAL, INTENT(IN) :: PGCON,sas_mass_flux,shal_pgcon
       INTEGER, OPTIONAL, INTENT(IN) :: shalconv
       REAL(kind=kind_phys)       :: PGCON_USE,SHAL_PGCON_USE,massf
+      logical,intent(in)  :: pert_sas
+      integer,intent(in)  :: ens_random_seed
+      real,intent(in)     :: ens_sasamp
       INTEGER :: shalconv_use
       REAL, DIMENSION(ims:ime, kms:kme, jms:jme), INTENT(INOUT) ::      &
                                         RQCCUTEN,                       &
@@ -163,17 +165,15 @@ CONTAINS
                                         V3D,                            &
                                         W
 
-! Adaptive time-step variables
-      REAL,  INTENT(IN   ) :: CUDT
-      REAL,  INTENT(IN   ) :: CURR_SECS
-      LOGICAL,INTENT(IN   ) , OPTIONAL :: ADAPT_STEP_FLAG
-      REAL,  INTENT (INOUT) :: CUDTACTTIME       
-
 !--------------------------- LOCAL VARS ------------------------------
 
       REAL,    DIMENSION(ims:ime, jms:jme) ::                           &
                                         PSFC
 
+      REAL,    DIMENSION(its:ite, jts:jte) ::                           &
+                                        RAINCV1, PRATEC1
+      REAL,    DIMENSION(its:ite, jts:jte) ::                           &
+                                        RAINCV2, PRATEC2
 
       REAL     (kind=kind_phys) ::                                      &
                                         DELT,                           &
@@ -225,75 +225,10 @@ CONTAINS
                                         KX,                             &
                                         NCLOUD 
 
-      LOGICAL :: run_param , doing_adapt_dt , decided
-
       DATA IGPVS/0/
 
 !-----------------------------------------------------------------------
 !
-!***  CHECK TO SEE IF THIS IS A CONVECTION TIMESTEP
-!
-
-!  Initialization for adaptive time step.
-
-   doing_adapt_dt = .FALSE.
-   IF ( PRESENT(adapt_step_flag) ) THEN
-      IF ( adapt_step_flag ) THEN
-         doing_adapt_dt = .TRUE.
-         IF ( cudtacttime .EQ. 0. ) THEN
-            cudtacttime = curr_secs + cudt*60.
-         END IF
-      END IF
-   END IF
-
-!  Do we run through this scheme or not?
-
-!    Test 1:  If this is the initial model time, then yes.
-!                ITIMESTEP=1
-!    Test 2:  If the user asked for the cumulus to be run every time step, then yes.
-!                CUDT=0 or STEPCU=1
-!    Test 3:  If not adaptive dt, and this is on the requested cumulus frequency, then yes.
-!                MOD(ITIMESTEP,STEPCU)=0
-!    Test 4:  If using adaptive dt and the current time is past the last requested activate cumulus time, then yes.
-!                CURR_SECS >= CUDTACTTIME
-
-!  If we do run through the scheme, we set the flag run_param to TRUE and we set the decided flag
-!  to TRUE.  The decided flag says that one of these tests was able to say "yes", run the scheme.
-!  We only proceed to other tests if the previous tests all have left decided as FALSE.
-
-!  If we set run_param to TRUE and this is adaptive time stepping, we set the time to the next
-!  cumulus run.
-
-   decided = .FALSE.
-   run_param = .FALSE.
-   IF ( ( .NOT. decided ) .AND. &
-        ( itimestep .EQ. 1 ) ) THEN
-      run_param   = .TRUE.
-      decided     = .TRUE.
-   END IF
-
-   IF ( ( .NOT. decided ) .AND. &
-        ( ( cudt .EQ. 0. ) .OR. ( stepcu .EQ. 1 ) ) ) THEN
-      run_param   = .TRUE.
-      decided     = .TRUE.
-   END IF
-
-   IF ( ( .NOT. decided ) .AND. &
-        ( .NOT. doing_adapt_dt ) .AND. &
-        ( MOD(itimestep,stepcu) .EQ. 0 ) ) THEN
-      run_param   = .TRUE.
-      decided     = .TRUE.
-   END IF
-
-   IF ( ( .NOT. decided ) .AND. &
-        ( doing_adapt_dt ) .AND. &
-        ( curr_secs .GE. cudtacttime ) ) THEN
-      run_param   = .TRUE.
-      decided     = .TRUE.
-      cudtacttime = curr_secs + cudt*60
-   END IF
-
-!-----------------------------------------------------------------------
 
       if(present(shalconv)) then
          shalconv_use=shalconv
@@ -367,8 +302,6 @@ CONTAINS
          ! Read the warning above though.  It may be advisable for
          ! these to be different.  
       endif
-
-   if_run_param: IF(run_param) THEN
 
       DO J=JTS,JTE
          DO I=ITS,ITE
@@ -472,9 +405,21 @@ CONTAINS
         ENDDO
       ENDDO
 
-      CALL SASCNVN(IM,IM,KX,JCAP,DELT,DEL,PRSL,PS,PHIL,                  &
+      CALL SASCNVN(IM,IM,KX,JCAP,DELT,DEL,PRSL,PS,PHIL,                 &
                   QL,Q1,T1,U1,V1,RCS,CLDWRK,RN,KBOT,                    &
-                  KTOP,KCNV,SLIMSK,DOT,NCLOUD,PGCON_USE,massf)
+                  KTOP,KCNV,SLIMSK,DOT,NCLOUD,PGCON_USE,massf,          &
+                  pert_sas, ens_random_seed, ens_sasamp)                         
+!
+      do i=its,ite
+        RAINCV1(I,J)=RN(I)*1000./STEPCU
+        PRATEC1(I,J)=RN(I)*1000./(STEPCU * DT)
+      enddo
+!
+      do i=its,ite
+        RAINCV2(I,J)=0.
+        PRATEC2(I,J)=0.
+      enddo
+!
 
       if_shallow_conv: if(shalconv_use==1) then
 #if (NMM_CORE == 1)
@@ -483,6 +428,12 @@ CONTAINS
         call shalcnv(im,im,kx,jcap,delt,del,prsl,ps,phil,ql,        &
      &               q1,t1,u1,v1,rcs,rn,kbot,ktop,kcnv,slimsk,      &
      &               dot,ncloud,hpbl,heat,evap,shal_pgcon_use)
+!
+      DO I=ITS,ITE
+        RAINCV2(I,J)=RN(I)*1000./STEPCU
+        PRATEC2(I,J)=RN(I)*1000./(STEPCU * DT)
+      ENDDO
+!
 #else
 #if (EM_CORE == 1)
         ! NOTE: ARW should be able to call the new shalcnv here, but
@@ -495,9 +446,9 @@ CONTAINS
 #endif
      endif if_shallow_conv
 
-      DO I=ITS,ITE
-        RAINCV(I,J)=RN(I)*1000./STEPCU
-        PRATEC(I,J)=RN(I)*1000./(STEPCU * DT)
+        DO I=ITS,ITE
+        RAINCV(I,J)= RAINCV1(I,J) + RAINCV2(I,J)
+        PRATEC(I,J)= PRATEC1(I,J) + PRATEC2(I,J)
         HBOT(I,J)=KBOT(I)
         HTOP(I,J)=KTOP(I)
       ENDDO
@@ -546,8 +497,6 @@ CONTAINS
 
    ENDDO big_outer_j_loop    ! Outer most J loop
 
-   ENDIF if_run_param
-
    END SUBROUTINE CU_SAS
 
 !====================================================================
@@ -582,7 +531,7 @@ CONTAINS
    ktf=min0(kte,kde-1)
    itf=min0(ite,ide-1)
 
-#ifdef HWRF
+#if ( HWRF == 1 )
 !zhang's doing
    IF(.not.restart .or. .not.allowed_to_read)THEN
 !end of zhang's doing
@@ -2649,7 +2598,8 @@ CONTAINS
 
       subroutine sascnvn(im,ix,km,jcap,delt,del,prsl,ps,phil,ql,   & 
      &     q1,t1,u1,v1,rcs,cldwrk,rn,kbot,ktop,kcnv,slimsk,        &
-     &     dot,ncloud,pgcon,sas_mass_flux)                         
+     &     dot,ncloud,pgcon,sas_mass_flux,                         &
+     &     pert_sas, ens_random_seed, ens_sasamp)                         
 !     &     dot,ncloud,ud_mf,dd_mf,dt_mf)                         
 !    &     dot,ncloud,ud_mf,dd_mf,dt_mf,me)
 !
@@ -2708,6 +2658,9 @@ CONTAINS
      &                     ptem,    ptem1
 !
       real(kind=kind_phys), intent(in) :: pgcon
+      logical,intent(in)  :: pert_sas
+      integer,intent(in)  :: ens_random_seed
+      real,intent(in)     :: ens_sasamp
 
       integer              kb(im), kbcon(im), kbcon1(im),          &
      &                     ktcon(im), ktcon1(im),                  &
@@ -2768,6 +2721,19 @@ CONTAINS
 !c    &            .743,.813,.886,.947,1.138,1.377,1.896/
       real(kind=kind_phys) tf, tcr, tcrf
       parameter (tf=233.16, tcr=263.16, tcrf=1.0/(tcr-tf))
+#if HWRF==1
+      real*8 :: gasdev,ran1          !zhang
+      real :: rr                     !zhang
+      logical,save :: pert_sas_local            !zhang
+      integer,save :: ens_random_seed_local         !zhang
+      real,save :: ens_sasamp_local         !zhang
+      data ens_random_seed_local/0/
+      if ( ens_random_seed_local .eq. 0 ) then
+         ens_random_seed_local=ens_random_seed
+         pert_sas_local=pert_sas
+         ens_sasamp_local=ens_sasamp
+      endif
+#endif
 !
 !c-----------------------------------------------------------------------
 !
@@ -3094,6 +3060,14 @@ CONTAINS
           tem1= .5*(cincrmax-cincrmin)
           cincr = cincrmax - tem * tem1
           pbcdif(i) = pfld(i,kb(i)) - pfld(i,kbcon(i))
+#if HWRF==1
+! randomly perturb the convection trigger
+          if( pert_sas_local ) then
+          rr=2.0*ens_sasamp_local*ran1(ens_random_seed_local)-ens_sasamp_local
+          print*, "zhang inde sas=", rr,ens_sasamp_local,ens_random_seed_local
+          cincr=cincr+rr
+          endif
+#endif
           if(pbcdif(i).gt.cincr) then
              cnvflg(i) = .false.
           endif
@@ -4503,7 +4477,7 @@ CONTAINS
      &                     dv1v,    dv2u,    dv2v,    dv3q,         &
      &                     dv3h,    dv3u,    dv3v,    clam,         &
      &                     dz,      dz1,     e1,                    &
-     &                     el2orc,  elocp,   aafac,                 &
+     &                     el2orc,  elocp,   aafac,   cthk,         &
      &                     es,      etah,    h1,      dthk,         &
      &                     evef,    evfact,  evfactl, fact1,        &
      &                     fact2,   factor,  fjcap,                 &
@@ -4540,7 +4514,7 @@ CONTAINS
      &          el2orc=hvap*hvap/(rv*cp))
       parameter(terr=0.,c0=.002,c1=5.e-4,delta=fv)
       parameter(fact1=(cvap-cliq)/rv,fact2=hvap/rv-fact1*t0c)
-      parameter(cincrmax=180.,cincrmin=120.,dthk=25.)
+      parameter(cthk=50.,cincrmax=180.,cincrmin=120.,dthk=25.)
       parameter(h1=0.33333333)
 !c  local variables and arrays
       real(kind=kind_phys) pfld(im,km),    to(im,km),     qo(im,km),    &
@@ -5013,18 +4987,28 @@ CONTAINS
 !c
 !c  turn off shallow convection if cloud top is less than pbl top
 !c
-!     do i=1,im
-!       if(cnvflg(i)) then
-!         kk = kpbl(i)+1
-!         if(ktcon(i).le.kk) cnvflg(i) = .false.
-!       endif
-!     enddo
+     do i=1,im
+       if(cnvflg(i)) then
+         kk = kpbl(i)+1
+         if(ktcon(i).le.kk) cnvflg(i) = .false.
+       endif
+     enddo
+! c
+! c  turn off shallow convection if cloud depth is less than
+! c    a threshold value (cthk)
+! c
+       do i = 1, im
+         if(cnvflg(i)) then
+           tem = pfld(i,kbcon(i))-pfld(i,ktcon(i))
+           if(tem.lt.cthk) cnvflg(i) = .false.
+         endif
+       enddo
 !!
-!     totflg = .true.
-!     do i = 1, im
-!       totflg = totflg .and. (.not. cnvflg(i))
-!     enddo
-!     if(totflg) return
+     totflg = .true.
+     do i = 1, im
+       totflg = totflg .and. (.not. cnvflg(i))
+     enddo
+     if(totflg) return
 !!
 !c
 !c  specify upper limit of mass flux at cloud base
@@ -5566,3 +5550,56 @@ CONTAINS
     end subroutine shalcnv
       END MODULE module_cu_sas
 
+     FUNCTION ran1(idum)
+      implicit none
+      integer idum,ia,im,iq,ir,ntab,ndiv
+      real*8 am,eps,rnmx
+      real*8 ran1
+      parameter (ia=16807,im=2147483647,am=1./im,iq=127773,ir=2836,   &
+     &           ntab=32,ndiv=1+(im-1)/ntab,eps=1.2e-7,rnmx=1.-eps)
+      integer j,k,iv(32),iy,junk
+      common /random/ junk,iv,iy
+      data iv /ntab*0/, iy /0/
+      if (idum.le.0.or.iy.eq.0) then
+         idum=max(-idum,1)
+         do j=ntab+8,1,-1
+            k=idum/iq
+            idum=ia*(idum-k*iq)-ir*k
+            if (idum.lt.0) idum=idum+im
+            if (j.le.ntab) iv(j)=idum
+         enddo
+         iy=iv(1)
+      endif
+      k=idum/iq
+      idum=ia*(idum-k*iq)-ir*k
+      if (idum.lt.0) idum=idum+im
+      j=1+iy/ndiv
+      iy=iv(j)
+      iv(j)=idum
+      ran1=min(am*iy,rnmx)
+      return
+      END FUNCTION ran1
+
+      FUNCTION gasdev(idum)
+      INTEGER idum
+      REAL*8 gasdev
+!CU    USES ran1
+      INTEGER iset
+      REAL*8 fac,gset,rsq,v1,v2,ran1
+      SAVE iset,gset
+      DATA iset/0/
+      if (iset.eq.0) then
+   1    v1=2.*ran1(idum)-1.
+        v2=2.*ran1(idum)-1.
+        rsq=v1**2+v2**2
+        if(rsq.ge.1..or.rsq.eq.0.)goto 1
+        fac=sqrt(-2.*log(rsq)/rsq)
+        gset=v1*fac
+        gasdev=v2*fac
+        iset=1
+      else
+        gasdev=gset
+        iset=0
+      endif
+      return
+      END FUNCTION gasdev

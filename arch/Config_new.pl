@@ -5,9 +5,11 @@
 # Be sure to run as ./configure (to avoid getting a system configure command by mistake)
 #
 
+select((select(STDOUT), $|=1)[0]);
 $sw_perl_path = perl ;
 $sw_netcdf_path = "" ;
 $sw_pnetcdf_path = "" ;
+$sw_hdf5_path=""; 
 $sw_phdf5_path=""; 
 $sw_jasperlib_path=""; 
 $sw_jasperinc_path=""; 
@@ -20,7 +22,9 @@ $sw_rwordsize="\$\(NATIVE_RWORDSIZE\)";
 $sw_rttov_flag = "" ;
 $sw_rttov_inc = "" ;
 $sw_crtm_flag = "" ;
+$sw_cloudcv_flag = "" ;
 $sw_4dvar_flag = "" ;
+$sw_wrfplus_path = "" ;
 $sw_wavelet_flag = "" ;
 $WRFCHEM = 0 ;
 $sw_os = "ARCH" ;           # ARCH will match any
@@ -34,10 +38,18 @@ $sw_coamps_core = "-DCOAMPS_CORE=\$\(WRF_COAMPS_CORE\)" ;
 $sw_dmparallel = "" ;
 $sw_ompparallel = "" ;
 $sw_stubmpi = "" ;
-$sw_usenetcdff = "" ;    # for 3.6.2 and greater, the fortran bindings might be in a separate lib file
+$sw_usenetcdff = "" ;    # UNIDATA switches around library names a bit
+$sw_usenetcdf = "" ;    
 $sw_time = "" ;          # name of a timer to time fortran compiles, e.g. timex or time
 $sw_ifort_r8 = 0 ;
-
+$sw_hdf5 = "-lhdf5 -lhdf5_hl";
+$sw_zlib = "-lz";
+$sw_dep_lib_path = "";
+$sw_gpfs_path = "";
+$sw_gpfs_lib  = "-lgpfs";
+$sw_curl_path = "";
+$sw_curl_lib  = "-lcurl";
+$sw_terrain_and_landuse = "";
 while ( substr( $ARGV[0], 0, 1 ) eq "-" )
  {
   if ( substr( $ARGV[0], 1, 5 ) eq "perl=" )
@@ -48,9 +60,40 @@ while ( substr( $ARGV[0], 0, 1 ) eq "-" )
   {
     $sw_netcdf_path = substr( $ARGV[0], 8 ) ;
   }
+  if ( substr( $ARGV[0], 1, 13 ) eq "dep_lib_path=" )
+  {
+    $sw_dep_lib_path = substr( $ARGV[0], 14 ) ;
+    $sw_dep_lib_path =~ s/\r|\n/ /g ;
+  }
+  if ( substr( $ARGV[0], 1, 5 ) eq "gpfs=" )
+  {
+    $sw_gpfs_path = substr( $ARGV[0], 6 ) ;
+    if ( $sw_gpfs_path ne "" ) 
+      {
+        if ( substr( $sw_gpfs_path, -1, 1 ) eq "/" )
+          {
+            $sw_gpfs_path = substr($sw_gpfs_path, 0, length($sw_gpfs_path)-1 ) ;
+          }
+      }
+  }
+  if ( substr( $ARGV[0], 1, 5 ) eq "curl=" )
+  {
+    $sw_curl_path = substr( $ARGV[0], 6 ) ;
+    if ( $sw_curl_path ne "" )
+      {
+        if ( substr( $sw_curl_path, -1, 1 ) eq "/" )
+          {
+            $sw_curl_path = substr($sw_curl_path, 0, length($sw_curl_path)-1 ) ;
+          }
+      }
+  }
   if ( substr( $ARGV[0], 1, 8 ) eq "pnetcdf=" )
   {
     $sw_pnetcdf_path = substr( $ARGV[0], 9 ) ;
+  }
+  if ( substr( $ARGV[0], 1, 5 ) eq "hdf5=" )
+  {
+    $sw_hdf5_path = substr( $ARGV[0], 6 ) ;
   }
   if ( substr( $ARGV[0], 1, 6 ) eq "phdf5=" )
   {
@@ -71,6 +114,10 @@ while ( substr( $ARGV[0], 0, 1 ) eq "-" )
   if ( substr( $ARGV[0], 1, 11 ) eq "USENETCDFF=" )
   {
     $sw_usenetcdff = substr( $ARGV[0], 12 ) ;
+  }
+  if ( substr( $ARGV[0], 1, 10 ) eq "USENETCDF=" )
+  {
+    $sw_usenetcdf = substr( $ARGV[0], 11 ) ;
   }
   if ( substr( $ARGV[0], 1, 5 ) eq "time=" )
   {
@@ -220,9 +267,14 @@ while ( substr( $ARGV[0], 0, 1 ) eq "-" )
        $sw_rttov_flag = "-DRTTOV";
        $sw_rttov_inc = "-I$ENV{RTTOV}/include -I$ENV{RTTOV}/mod";
        }
+     if ( $ENV{CLOUD_CV} )
+       {
+       $sw_cloudcv_flag = "-DCLOUD_CV";
+       }
      if ( $sw_wrf_core eq "4D_DA_CORE" )
        {
        $sw_4dvar_flag = "-DVAR4D";
+       $sw_wrfplus_path= $ENV{WRFPLUS_DIR};
        }
      if ( $ENV{WAVELET} )
        {
@@ -261,31 +313,69 @@ if ( $sw_wrf_core eq "4D_DA_CORE" )
 # Display the choices to the user and get selection
 until ( $validresponse ) {
   printf "------------------------------------------------------------------------\n" ;
-  printf "Please select from among the following supported platforms.\n\n" ;
+  printf "Please select from among the following $sw_os $sw_mach options:\n\n" ;
 
   $opt = 1 ;
+  $optstr = "";
   open CONFIGURE_DEFAULTS, "< ./arch/configure_new.defaults" 
       or die "Cannot open ./arch/configure_new.defaults for reading" ;
-  while ( <CONFIGURE_DEFAULTS> )
-  {
-    for $paropt ( @platforms )
-    {
-      if ( substr( $_, 0, 5 ) eq "#ARCH"
-          && ( index( $_, $sw_os ) >= 0 ) && ( index( $_, $sw_mach ) >= 0 ) 
-          && ( index($_, $paropt) >= 0 ) )
-      {
-        $optstr[$opt] = substr($_,6) ;
-        $optstr[$opt] =~ s/^[ 	]*// ;
-        $optstr[$opt] =~ s/#.*$//g ;
-        chomp($optstr[$opt]) ;
-        $optstr[$opt] = $optstr[$opt]." (".$paropt.")" ;
-        if ( substr( $optstr[$opt], 0,4 ) ne "NULL" )
-        {
-          printf "  %2d.  %s\n",$opt,$optstr[$opt] ;
-          $opt++ ;
+  while ( <CONFIGURE_DEFAULTS> ) {
+
+     $currline = $_;
+     chomp $currline;
+     # Look for our platform in the configuration option header. 
+     # If we're going to list it, print parallelism options
+     if ( substr( $currline, 0, 5 ) eq "#ARCH" && ( index( $currline, $sw_os ) >= 0 ) 
+         && ( index( $currline, $sw_mach ) >= 0 ) ) {
+        $optstr = substr($currline,6) ;
+
+        foreach ( @platforms ) { # Check which parallelism options are valid for this configuration option
+           $paropt = $_ ;
+           if ( index($optstr, $paropt) >= 0 ) { #If parallelism option is valid, print and assign number
+              printf "%3d. (%s) ",$opt,$paropt ;
+              $pararray[$opt] = $paropt ;
+              $opttemp = $optstr ;
+              $opttemp =~ s/#.*$//g ;
+              chomp($opttemp) ;
+              $optarray[$opt] = $opttemp." (".$paropt.")" ;
+              $opt++ ;
+           } else { #If parallelism option is not valid, print spaces for formatting/readability
+              $paropt =~ s/./ /g ;
+              printf "      %s  ",$paropt ;
+           }
         }
-      }
-    }
+        next;
+     }
+
+     next unless ( length $optstr ) ; # Don't read option lines unless it's valid for our platform
+
+     if ( substr( $currline, 0, 11 ) eq "DESCRIPTION" ) {
+        $optstr = $currline ; #Initial value of $optstr is DESCRIPTION line
+        next;
+     }
+
+     if ( substr( $currline, 0, 3 ) eq "SFC" ) {
+        $currline =~ s/^SFC\s*=\s*//g;      #remove "SFC ="
+        $currline =~ s/ (\-\S*)*$//g;       #remove trailing arguments and/or spaces
+        $optstr =~ s/\$SFC/$currline/g;     #Substitute the fortran compiler name into optstr
+        $optstr =~ s/DESCRIPTION\s*=\s*//g; #Remove "DESCRIPTION ="
+        next;
+     }
+
+     if ( substr( $currline, 0, 3 ) eq "SCC" ) {
+        $currline =~ s/^SCC\s*=\s*//g;      #remove "SCC ="
+        $currline =~ s/ (\-\S*)*$//g;       #remove trailing arguments and/or spaces
+        $optstr =~ s/\$SCC/$currline/g;     #Substitute the C compiler name into optstr
+        next;
+     }
+
+     if ( substr( $currline, 0, 4 ) eq "####" ) { #reached the end of this option's entry
+        chomp($optstr) ;
+        printf "  %s\n",$optstr ;
+        $optstr = "";
+        next;
+     }
+
   }
   close CONFIGURE_DEFAULTS ;
 
@@ -304,7 +394,11 @@ until ( $validresponse ) {
 printf "------------------------------------------------------------------------\n" ;
 
 $optchoice = $response ;
-
+if ( $response == 2 || $response == 3 ) {
+  if ( $ENV{'TERRAIN_AND_LANDUSE'} eq "1" && index($sw_wrf_core, "EM_CORE") > -1 ) { 
+    $sw_terrain_and_landuse =" -DTERRAIN_AND_LANDUSE" ;
+  }
+} 
 open CONFIGURE_DEFAULTS, "cat ./arch/configure_new.defaults |"  ;
 $latchon = 0 ;
 while ( <CONFIGURE_DEFAULTS> )
@@ -318,11 +412,13 @@ while ( <CONFIGURE_DEFAULTS> )
       open CONFIGURE_DEFAULTS, "cat ./arch/postamble_new ./arch/noopt_exceptions |"  or die "horribly" ;
     }
   }
+  $_ =~ s:CONFIGURE_NMM_CORE:$sw_nmm_core:g ;
   if ( $latchon == 1 )
   {
     $_ =~ s/CONFIGURE_PERL_PATH/$sw_perl_path/g ;
     $_ =~ s/CONFIGURE_NETCDF_PATH/$sw_netcdf_path/g ;
     $_ =~ s/CONFIGURE_PNETCDF_PATH/$sw_pnetcdf_path/g ;
+    $_ =~ s/CONFIGURE_HDF5_PATH/$sw_hdf5_path/g ;
     $_ =~ s/CONFIGURE_PHDF5_PATH/$sw_phdf5_path/g ;
     $_ =~ s/CONFIGURE_LDFLAGS/$sw_ldflags/g ;
     $_ =~ s/CONFIGURE_COMPILEFLAGS/$sw_compileflags/g ;
@@ -339,9 +435,11 @@ while ( <CONFIGURE_DEFAULTS> )
     $_ =~ s/CONFIGURE_STUBMPI/$sw_stubmpi/g ;
     $_ =~ s/CONFIGURE_NESTOPT/$sw_nest_opt/g ;
     $_ =~ s/CONFIGURE_4DVAR_FLAG/$sw_4dvar_flag/g ;
+    $_ =~ s/CONFIGURE_WRFPLUS_PATH/$sw_wrfplus_path/g ;
     $_ =~ s/CONFIGURE_CRTM_FLAG/$sw_crtm_flag/g ;
     $_ =~ s/CONFIGURE_RTTOV_FLAG/$sw_rttov_flag/g ;
     $_ =~ s/CONFIGURE_RTTOV_INC/$sw_rttov_inc/g ;
+    $_ =~ s/CONFIGURE_CLOUDCV_FLAG/$sw_cloudcv_flag/g ;
     $_ =~ s/CONFIGURE_WAVELET_FLAG/$sw_wavelet_flag/g ;
     if ( $sw_ifort_r8 ) {
       $_ =~ s/^PROMOTION.*=/PROMOTION       =       -r8 /g ;
@@ -357,10 +455,12 @@ while ( <CONFIGURE_DEFAULTS> )
     if ( $sw_netcdf_path ) 
       { $_ =~ s/CONFIGURE_WRFIO_NF/wrfio_nf/g ;
 	$_ =~ s:CONFIGURE_NETCDF_FLAG:-DNETCDF: ;
-        if ( $sw_os eq "Interix" ) {
-	  $_ =~ s:CONFIGURE_NETCDF_LIB_PATH:\$\(WRF_SRC_ROOT_DIR\)/external/io_netcdf/libwrfio_nf.a -L$sw_netcdf_path/lib $sw_usenetcdff -lnetcdf : ;
+        if ( $ENV{NETCDF_LDFLAGS} ) {
+          $_ =~ s:CONFIGURE_NETCDF_LIB_PATH:\$\(WRF_SRC_ROOT_DIR\)/external/io_netcdf/libwrfio_nf.a $ENV{NETCDF_LDFLAGS} : ;
+        } elsif ( $sw_os eq "Interix" ) {
+	  $_ =~ s:CONFIGURE_NETCDF_LIB_PATH:\$\(WRF_SRC_ROOT_DIR\)/external/io_netcdf/libwrfio_nf.a -L$sw_netcdf_path/lib $sw_usenetcdff $sw_usenetcdf : ;
         } else {
-	  $_ =~ s:CONFIGURE_NETCDF_LIB_PATH:-L\$\(WRF_SRC_ROOT_DIR\)/external/io_netcdf -lwrfio_nf -L$sw_netcdf_path/lib $sw_usenetcdff -lnetcdf : ;
+	  $_ =~ s:CONFIGURE_NETCDF_LIB_PATH:-L\$\(WRF_SRC_ROOT_DIR\)/external/io_netcdf -lwrfio_nf -L$sw_netcdf_path/lib $sw_usenetcdff $sw_usenetcdf : ;
         }
 	 }
     else                   
@@ -383,6 +483,15 @@ while ( <CONFIGURE_DEFAULTS> )
 	$_ =~ s:CONFIGURE_PNETCDF_FLAG::g ;
 	$_ =~ s:CONFIGURE_PNETCDF_LIB_PATH::g ;
 	 }
+
+    if ( $sw_hdf5_path ) 
+      { $_ =~ s:CONFIGURE_HDF5_LIB_PATH:-L$sw_hdf5_path/lib -lhdf5_fortran -lhdf5 -lm -lz: ;
+        $_ =~ s:CONFIGURE_HDF5_FLAG:-DHDF5: ;
+         }
+    else
+      { $_ =~ s:CONFIGURE_HDF5_LIB_PATH::g ;
+        $_ =~ s:CONFIGURE_HDF5_FLAG::g ;
+         }
 
     if ( $sw_phdf5_path ) 
 
@@ -409,6 +518,14 @@ while ( <CONFIGURE_DEFAULTS> )
         $_ =~ s:CONFIGURE_GRIB2_LIB::g ;
       }
 
+   if ( $sw_terrain_and_landuse )
+     { 
+        $_ =~ s/CONFIGURE_TERRAIN_AND_LANDUSE/$sw_terrain_and_landuse/g;
+     }
+   else
+     {
+       $_  =~ s:CONFIGURE_TERRAIN_AND_LANDUSE::g;
+     }
 
     # ESMF substitutions in configure.defaults
     if ( $sw_esmflib_path && $sw_esmfinc_path )
@@ -450,6 +567,19 @@ while ( <CONFIGURE_DEFAULTS> )
         $_ =~ s/CONFIGURE_ATMOCN//g ;
         $_ =~ s:CONFIGURE_ATMOCN_INC::g;
        }
+     if ( $ENV{NETCDF4} )
+       { if ( $ENV{NETCDF4} eq "1" )
+           {
+             if ( /(^ARCH_LOCAL.*=|^TRADFLAG.*=)/ ) 
+               { $_  =~ s/\r|\n//g; 
+                 $_ .= " \$\(NETCDF4_IO_OPTS\)\n" ; 
+               }
+             if (/^LIB.*=/) 
+               { $_  =~ s/\r|\n//g ;
+                 $_ .=" \$\(NETCDF4_DEP_LIB\)\n" ;
+               }
+           }
+       }
 
     if ( ! (substr( $_, 0, 5 ) eq "#ARCH") ) { @machopts = ( @machopts, $_ ) ; }
     if ( substr( $_, 0, 10 ) eq "ENVCOMPDEF" )
@@ -470,13 +600,19 @@ while ( <CONFIGURE_DEFAULTS> )
           && ( index( $_, $sw_os ) >= 0 ) && ( index( $_, $sw_mach ) >= 0 ) 
           && ( index($_, $paropt) >= 0 ) )
     {
+      # We are cycling through the configure_new.defaults file again.
+      # This bit tries to match the line corresponding to the option we previously selected.
       $x=substr($_,6) ;
-      $x=~s/^[     ]*// ;
       $x =~ s/#.*$//g ;
       chomp($x) ;
       $x = $x." (".$paropt.")" ;
-      if ( $x eq $optstr[$optchoice] )
+      if ( $x eq $optarray[$optchoice] )
       {
+
+        if($ENV{WRF_HYDRO} eq 1) {
+           $tt = `cd hydro; ./wrf_hydro_config "$x" "$paropt"`;
+        }
+
         $latchon = 1 ;
         $sw_ompparallel = "" ;
         $sw_dmparallel = "" ;
@@ -485,17 +621,19 @@ while ( <CONFIGURE_DEFAULTS> )
         if ( $paropt ne 'dmpar' && $paropt ne 'dm+sm' ) { $sw_pnetcdf_path = "" ; }
         #
         until ( $validresponse ) {
-          if ( $paropt eq 'serial' || $paropt eq 'smpar' ) {
-            printf "Compile for nesting? (0=no nesting, 1=basic, 2=preset moves, 3=vortex following) [default 0]: " ;
-          } else {
-            printf "Compile for nesting? (1=basic, 2=preset moves, 3=vortex following) [default 1]: " ;
-          }
           if ( $ENV{WRF_DA_CORE} eq "1" || $sw_da_core eq "-DDA_CORE=1" ) {
              $response = 1 ;
           } elsif ( $ENV{HWRF} ) {
              printf "HWRF requires moving nests";
              $response = "2\n";
           } else {
+             if ( $paropt eq 'serial' || $paropt eq 'smpar' ) {
+               printf "Compile for nesting? (0=no nesting, 1=basic, 2=preset moves, 3=vortex following) [default 0]: " ;
+             } elsif ( $ENV{WRF_NMM_CORE} eq "1" ) {
+               printf "Compile for nesting? (1=basic, 2=preset moves) [default 1]: " ;
+             } else {
+               printf "Compile for nesting? (1=basic, 2=preset moves, 3=vortex following) [default 1]: " ;
+             }
              $response = <STDIN> ;
           } 
           printf "\n" ;
@@ -528,8 +666,16 @@ while ( <CONFIGURE_DEFAULTS> )
         } 
         if ( $response == 2 ) {
           $sw_nest_opt = "-DMOVE_NESTS" ; 
+          if ( $ENV{'TERRAIN_AND_LANDUSE'} eq "1" ) {
+            $sw_terrain_and_landuse =" -DTERRAIN_AND_LANDUSE" ;
+            $sw_nest_opt = $sw_nest_opt . $sw_terrain_and_landuse; 
+          }  
         } elsif ( $response == 3 ) {
           $sw_nest_opt = "-DMOVE_NESTS -DVORTEX_CENTER" ; 
+          if ( $ENV{'TERRAIN_AND_LANDUSE'} eq "1" ) {
+            $sw_terrain_and_landuse =" -DTERRAIN_AND_LANDUSE" ;
+            $sw_nest_opt = $sw_nest_opt . $sw_terrain_and_landuse; 
+          }
         }
         if ( $paropt eq 'smpar' || $paropt eq 'dm+sm' ) { $sw_ompparallel = "OMP" ; }
         if ( $paropt eq 'dmpar' || $paropt eq 'dm+sm' ) { 
@@ -559,6 +705,15 @@ while ( <CONFIGURE_DEFAULTS> )
     }
   }
 }
+
+if ($latchon == 0) { # Never hurts to check that we actually found the option again.
+  unlink "configure.wrf";
+  print "\nERROR ERROR ERROR ERROR\n\n";
+  print "SOMETHING TERRIBLE HAS HAPPENED: configure.wrf not created correctly.\n";
+  print 'Check "$x" and "$optarray[$optchoice]"';
+  die   "\n\nERROR ERROR ERROR ERROR\n\n";
+}
+
 close CONFIGURE_DEFAULTS ;
 close POSTAMBLE ;
 close ARCH_NOOPT_EXCEPTIONS ;
@@ -606,15 +761,44 @@ while ( <ARCH_PREAMBLE> )
   $_ =~ s:CONFIGURE_COAMPS_CORE:$sw_coamps_core:g ;
   $_ =~ s:CONFIGURE_EXP_CORE:$sw_exp_core:g ;
 
+  $_ =~ s/CONFIGURE_DEP_LIB_PATH/$sw_dep_lib_path/g ;
+
+  if ( $sw_gpfs_path ne "" )
+    { if (/^GPFS.*=/)
+        { $_  =~ s/\r|\n//g;
+          if ( $sw_gpfs_path ne "DEFAULT" )
+            { $_ .= " -L" . $sw_gpfs_path ; }
+          $_ .= " " . $sw_gpfs_lib . "\n" ;
+        }
+    }
+  if ( $sw_curl_path ne "" )
+    { if (/^CURL.*=/)
+        { $_  =~ s/\r|\n//g;
+          if ( $sw_curl_path ne "DEFAULT" ) 
+            { $_ .= " -L" . $sw_curl_path ; }
+          $_ .= " " . $sw_curl_lib . "\n" ;
+        }
+    }
+  if ( $sw_dep_lib_path ne "" )
+    { if (/^HDF5.*=/)
+        { $_  =~ s/\r|\n//g;
+          $_ .= " " . $sw_hdf5 . "\n" ;
+        }
+      if (/^ZLIB.*=/)
+        { $_  =~ s/\r|\n//g;
+          $_ .= " " . $sw_zlib . "\n" ;
+        }
+    }
+
   @preamble = ( @preamble, $_ ) ;
   }
 close ARCH_PREAMBLE ;
 print CONFIGURE_WRF @preamble  ;
 close ARCH_PREAMBLE ;
-printf CONFIGURE_WRF "# Settings for %s\n", $optstr[$optchoice] ;
+printf CONFIGURE_WRF "# Settings for %s\n", $optarray[$optchoice] ;
 print CONFIGURE_WRF @machopts  ;
 print "$ENV{WRF_MARS}" ;
-if ( $ENV{WRF_MARS} || $ENV{WRF_TITAN} || $ENV{WRF_VENUS} )
+	if ( $ENV{WRF_MARS} || $ENV{WRF_TITAN} || $ENV{WRF_VENUS} )
 {
     open ARCH_PLANETAMBLE, "< arch/planetamble" or die "cannot open arch/planetamble" ;
     while ( <ARCH_PLANETAMBLE> ) { print CONFIGURE_WRF } ;
@@ -623,7 +807,7 @@ if ( $ENV{WRF_MARS} || $ENV{WRF_TITAN} || $ENV{WRF_VENUS} )
 
 close CONFIGURE_WRF ;
 
-printf "Configuration successful. To build the model type compile . \n" ;
+printf "Configuration successful! \n" ;
 printf "------------------------------------------------------------------------\n" ;
 
 

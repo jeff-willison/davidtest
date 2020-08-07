@@ -8,9 +8,15 @@
 #ifndef O_WRONLY
 # define O_WRONLY _O_WRONLY
 #endif
+#ifndef O_TRUNC
+# define O_TRUNC _O_TRUNC
+#endif
 
 #ifdef _WIN32
 #include <Winsock2.h>
+#endif
+#ifdef NCEP_DEBUG_MULTIDIR
+// #  include <errno.h>
 #endif
 
 #define STANDARD_ERROR 2
@@ -24,7 +30,7 @@
 
 #define F_PACK
 
-RSL_LITE_ERROR_DUP1 ( int *me )
+void RSL_LITE_ERROR_DUP1 ( int *me )
 {
     int newfd,rc ;
     char filename[256] ;
@@ -37,8 +43,19 @@ RSL_LITE_ERROR_DUP1 ( int *me )
     gethostname( hostname, 256 ) ;
 
 /* redirect standard out*/
+# ifndef RSL0_ONLY
     sprintf(filename,"rsl.out.%04d",*me) ;
-    if ((newfd = open( filename, O_CREAT | O_WRONLY, 0666 )) < 0 )
+# else
+    if (*me == 0)
+     {
+     sprintf(filename,"rsl.out.%04d",*me) ;
+     }
+    else
+     {
+     sprintf(filename,"/dev/null") ;
+     }
+# endif
+    if ((newfd = open( filename, O_CREAT | O_WRONLY | O_TRUNC, 0666 )) < 0 )
     {
         perror("error_dup: cannot open rsl.out.nnnn") ;
         fprintf(stderr,"...sending output to standard output and continuing.\n") ;
@@ -56,8 +73,19 @@ RSL_LITE_ERROR_DUP1 ( int *me )
 # if defined( _WIN32 ) 
     if ( *me != 0 ) {   /* stderr from task 0 should come to screen on windows because it is buffered if redirected */
 #endif
+# ifndef RSL0_ONLY
     sprintf(filename,"rsl.error.%04d",*me) ;
-    if ((newfd = open( filename, O_CREAT | O_WRONLY, 0666 )) < 0 )
+# else
+    if (*me == 0)
+     {
+     sprintf(filename,"rsl.error.%04d",*me) ;
+     }
+    else
+     {
+     sprintf(filename,"/dev/null") ;
+     }
+# endif
+    if ((newfd = open( filename, O_CREAT | O_WRONLY | O_TRUNC, 0666 )) < 0 )
     {
         perror("error_dup: cannot open rsl.error.log") ;
         fprintf(stderr,"...sending error to standard error and continuing.\n") ;
@@ -118,7 +146,7 @@ RSL_LITE_ERROR_DUP1 ( int *me )
                                                                                                                                               
    sprintf(filename, "%s/%04d/rsl.out.%04d","TASKOUTPUT",*me,*me) ;
         
-   if ((newfd = open( filename, O_CREAT | O_WRONLY, 0666 )) < 0 )
+   if ((newfd = open( filename, O_CREAT | O_WRONLY | O_TRUNC, 0666 )) < 0 )
    {
         perror("error_dup: cannot open ./TASKOUTPUT/nnnn/rsl.out.nnnn") ;
         fprintf(stderr,"...sending output to standard output and continuing.\n")
@@ -134,7 +162,7 @@ RSL_LITE_ERROR_DUP1 ( int *me )
    }
         
    sprintf(filename, "%s/%04d/rsl.error.%04d","TASKOUTPUT",*me,*me) ;
-   if ((newfd = open( filename, O_CREAT | O_WRONLY, 0666 )) < 0 )
+   if ((newfd = open( filename, O_CREAT | O_WRONLY | O_TRUNC, 0666 )) < 0 )
    {
        perror("error_dup: cannot open ./TASKOUTPUT/nnnn/rsl.error.nnnn") ;
        fprintf(stderr,"...sending error to standard error and continuing.\n") ;
@@ -194,6 +222,25 @@ BYTE_BCAST ( char * buf, int * size, int * Fcomm )
     }
 # else
     MPI_Bcast ( buf, *size, MPI_BYTE, 0, *comm ) ;
+# endif
+#endif
+}
+
+BYTE_BCAST_FROM_ROOT ( char * buf, int * size, int *root , int * Fcomm )
+{
+#ifndef STUBMPI
+    MPI_Comm *comm, dummy_comm ;
+
+    comm = &dummy_comm ;
+    *comm = MPI_Comm_f2c( *Fcomm ) ;
+# ifdef crayx1
+    if (*size % sizeof(int) == 0) {
+       MPI_Bcast ( buf, *size/sizeof(int), MPI_INT, *root, *comm ) ;
+    } else {
+       MPI_Bcast ( buf, *size, MPI_BYTE, *root, *comm ) ;
+    }
+# else
+    MPI_Bcast ( buf, *size, MPI_BYTE, *root, *comm ) ;
 # endif
 #endif
 }

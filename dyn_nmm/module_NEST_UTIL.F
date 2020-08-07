@@ -313,339 +313,10 @@
         ENDIF
       ENDDO
 END  SUBROUTINE NESTBC_PATCH
-
-!----------------------------------------------------------------------
-!
-SUBROUTINE STATS_FOR_MOVE (XLOC,YLOC,PDYN,MSLP,SQWS              &
-                          ,PINT,T,Q,U,V                          &
-                          ,FIS,PD,SM,PDTOP,PTOP                  &
-                          ,DETA1,DETA2                           &
-#ifdef HWRF
-                          ,RESTART,NTIME0                        & ! zhang's doing
-                          ,MOVED,MVNEST,NTSD,NPHS,CFREQ          & ! CFREQ*DT*NPHS=540s
-#else
-                          ,MOVED,MVNEST,NTSD,NPHS                &
-#endif
-                          ,vortex_tracker                        &
-                          ,IDS,IDE,JDS,JDE,KDS,KDE               &
-                          ,IMS,IME,JMS,JME,KMS,KME               &
-                          ,ITS,ITE,JTS,JTE,KTS,KTE               )
-
-!**********************************************************************
-!$$$  SUBPROGRAM DOCUMENTATION BLOCK
-!                .      .    .
-! SUBPROGRAM:  STATS_FOR_MOVE  
-!   PRGRMMR: gopal
-!
-! ABSTRACT:
-!         THIS ROUTINE COMPUTES SOME STATS REQUIRED FOR AUTOMATIC GRID MOTION 
-!         THERE ARE THREE DIFFERENT MODES:
-!             vortex_tracker=1 -- follow vortex using old algorithm
-!             vortex_tracker=2 -- follow child
-!             vortex_tracker=3 -- follow vortex using new HRD algorithm
-!               otherwise   -- do nothing
-! PROGRAM HISTORY LOG:
-!   05-18-2005  : gopal
-!
-! USAGE: CALL STATS_FOR_MOVE FROM SUBROUTINE SOLVE_RUNSTREAM FOR NESTED DOMAIN ONLY
-!
-! ATTRIBUTES:
-!   LANGUAGE: FORTRAN 90
-!   MACHINE : IBM SP
-!$$$
-!**********************************************************************
-
-      USE MODULE_MODEL_CONSTANTS
-      USE MODULE_DM
-
-      IMPLICIT NONE
-!
-      LOGICAL,EXTERNAL                                      :: wrf_dm_on_monitor
-      LOGICAL,INTENT(INOUT)                                 :: MVNEST  ! NMM SWITCH FOR GRID MOTION
-      LOGICAL,INTENT(IN)                                    :: MOVED
-      INTEGER,INTENT(IN)                                    :: vortex_tracker
-      INTEGER,INTENT(IN)                                    :: IDS,IDE,JDS,JDE,KDS,KDE   &
-                                                              ,IMS,IME,JMS,JME,KMS,KME   &
-                                                              ,ITS,ITE,JTS,JTE,KTS,KTE   &
-#ifdef HWRF
-                                                              ,NTSD,NPHS,CFREQ
-#else
-                                                              ,NTSD,NPHS
-#endif
-!
-      INTEGER, INTENT(OUT)                                  :: XLOC,YLOC
-      INTEGER                                               :: NXLOC,NYLOC
-      REAL                                                  :: NSUM1,NSUM2,NSUM3
-      REAL, DIMENSION(KMS:KME),                 INTENT(IN)  :: DETA1,DETA2
-      REAL,                                     INTENT(IN)  :: PDTOP,PTOP
-      REAL, DIMENSION(IMS:IME,JMS:JME),         INTENT(IN)  :: FIS,PD,SM
-      REAL, DIMENSION(IMS:IME,JMS:JME,KMS:KME), INTENT(IN)  :: PINT,T,Q,U,V
-      REAL, DIMENSION(IMS:IME,JMS:JME),         INTENT(OUT) :: PDYN,MSLP,SQWS
-!
-!     LOCAL
-
-#ifdef HWRF
-!zhang's doing
-      INTEGER,INTENT(INOUT)                                 :: NTIME0
-      LOGICAL,INTENT(IN)                                    :: RESTART
-#else
-      INTEGER,SAVE                                          :: NTIME0
-#endif
-      INTEGER                                               :: IM,JM,IP,JP
-      INTEGER                                               :: I,K,J,XR,YR,DTMOVE,IDUM,JDUM,ITF,JTF
-      REAL, PARAMETER                                       :: LAPSR=6.5E-3, GI=1./G,D608=0.608
-      REAL, PARAMETER                                       :: COEF3=287.05*GI*LAPSR, COEF2=-1./COEF3
-      REAL, PARAMETER                                       :: TRG=2.0*R_D*GI,LAPSI=1.0/LAPSR
-      REAL                                                  :: DZ,RTOPP,APELP,A,TSFC,STMP0,STMP1
-      REAL                                                  :: SMSUM,SMOUT,XDIFF,YDIFF,PCUT,PGR
-      REAL                                                  :: MINGBL_PDYN,MAXGBL_PDYN,MAXGBL_SQWS
-      REAL                                                  :: MINGBL_MIJ
-      REAL, DIMENSION(IMS:IME,JMS:JME)                      :: MIJ
-      REAL, DIMENSION(IMS:IME,JMS:JME,KMS:KME)              :: Z
-
-!    EXEC 
-
-     ITF=MIN(ITE,IDE-1)
-     JTF=MIN(JTE,JDE-1)
-
-!----------------------------------------------------------------------------------
-
-!     KEEP NEST MOTION IN SINK WITH PHYSICS TIME STEPS
-#ifdef HWRF
-      IF(MOD(NTSD+1,CFREQ*NPHS)/=0)THEN   !FOR FULL COUPLING
-        IF(MOVED) NTIME0=NTSD             !FOR UPDATING NTIM0
-#else
-      IF(MOD(NTSD+1,NPHS)/=0)THEN
-#endif
-        MVNEST=.FALSE.
-        RETURN
-      ENDIF
-
-!     DETERMINE THE HEIGHTS ON THE PARENT DOMAIN
-
-      DO J = JTS, MIN(JTE,JDE)
-       DO I = ITS, MIN(ITE,IDE)
-         Z(I,J,1)=FIS(I,J)*GI
-       ENDDO
-      ENDDO
-!
-      DO K = KTS,KTE
-       DO J = JTS, MIN(JTE,JDE)
-        DO I = ITS, MIN(ITE,IDE)
-          APELP      = (PINT(I,J,K+1)+PINT(I,J,K))
-          RTOPP      = TRG*T(I,J,K)*(1.0+Q(I,J,K)*P608)/APELP
-          DZ         = RTOPP*(DETA1(K)*PDTOP+DETA2(K)*PD(I,J))
-          Z(I,J,K+1) = Z(I,J,K) + DZ
-        ENDDO
-       ENDDO
-      ENDDO
-
-!     DETERMINE THE MEAN SEA LEVEL PRESSURE, THE VERTICALLY AVERAGED WIND
-!     SPEED AT ABOUT LEVELS 9 10 AND 11 AND THE DYNAMIC PRESSURES DEFINED
-!     FROM BASIC BERNOULLI's THEOREM
-
-      DO J = JTS, MIN(JTE,JDE)
-        DO I = ITS, MIN(ITE,IDE)
-            TSFC      = T(I,J,1)*(1.+D608*Q(I,J,1)) + LAPSR*(Z(I,J,1)+Z(I,J,2))*0.5
-            A         = LAPSR*Z(I,J,1)/TSFC
-            MSLP(I,J) = PINT(I,J,1)*(1-A)**COEF2
-            SQWS(I,J) =  (U(I,J,9)*U(I,J,9) + V(I,J,9)*V(I,J,9)           &
-                      +   U(I,J,10)*U(I,J,10) + V(I,J,10)*V(I,J,10)       &
-                      +   U(I,J,11)*U(I,J,11) + V(I,J,11)*V(I,J,11))/3.0
-#ifdef HWRF
-            PDYN(I,J) =   MSLP(I,J)
-#else
-            PDYN(I,J) =   MSLP(I,J)  + 1.1*SQWS(I,J)/2.0
-#endif
-        ENDDO
-      ENDDO
-
-!     FILTER OUT PDYN AND STORE THAT IN MIJ. THE MAXIMUM VALUE OF MIJ GIVES THE STORM CENTER
-!     ALSO DO THAT WITHIN A SUB DOMAIN
-
-      MAXGBL_PDYN=MAXVAL(PDYN(ITS:ITF,JTS:JTF))
-      CALL WRF_DM_MAXVAL(MAXGBL_PDYN,IDUM,JDUM)
-      MINGBL_PDYN=MINVAL(PDYN(ITS:ITF,JTS:JTF))
-      CALL WRF_DM_MINVAL(MINGBL_PDYN,IDUM,JDUM)
-      PCUT = 0.5*(MAXGBL_PDYN + MINGBL_PDYN)
-!
-      IM=IDE/2 - IDE/6
-      IP=IDE/2 + IDE/6
-      JM=JDE/2 - JDE/4
-      JP=JDE/2 + JDE/4
-!
-      DO J = JTS, MIN(JTE,JDE)
-        DO I = ITS, MIN(ITE,IDE)
-          IF(I .GE. IM .AND. I .LE. IP .AND. J .GE. JM .AND. J .LE. JP  &
-                       .AND. PCUT .GT. PDYN(I,J))THEN
-             MIJ(I,J) = PDYN(I,J)
-          ELSE
-             MIJ(I,J) = 105000.0
-          ENDIF
-        ENDDO
-      ENDDO
-
-      DO J = JTS, MIN(JTE,JDE)
-        DO I = ITS, MIN(ITE,IDE)
-          PDYN(I,J)=MIJ(I,J)
-        ENDDO
-      ENDDO
-
-!   BEGIN OLD TRACKER CODE ----------------------------------------------------
-    old_tracker_1: if(vortex_tracker == 1) then
-!
-!     DETERMINE THE LOCATION OF CENTER OF THE CIRCULATION DEFINED BY MIJ AND FIND THE CORRESPONDING MSLP 
-!
-      STMP0=MAXGBL_PDYN*100.                 ! define arbitrary maximum
-      MINGBL_MIJ=MINVAL(MIJ(ITS:ITF,JTS:JTF))
-      DO J = JTS, MIN(JTE,JDE)
-        DO I = ITS, MIN(ITE,IDE)
-           IF(MIJ(I,J) .EQ. MINGBL_MIJ)THEN
-             XLOC=I
-             YLOC=J
-             STMP0=MSLP(I,J)
-           ENDIF
-        ENDDO
-      ENDDO
-
-      CALL WRF_DM_MINVAL(MINGBL_MIJ,XLOC,YLOC)
-      CALL WRF_DM_MINVAL(STMP0,IDUM,JDUM)
-   endif old_tracker_1
-!   END OLD TRACKER CODE ------------------------------------------------------
-
-
-!   BEGIN HRD TRACKER CODE ----------------------------------------------------
-    hwrfx_tracker: if(vortex_tracker == 3) then
-!     USE CENTROID TO FIND THE CENTER    Xuejin's doing
-
-      NSUM1=0.0
-      NSUM2=0.0
-      NSUM3=0.0
-      DO J = JTS, MIN(JTE,JDE)
-       DO I = ITS, MIN(ITE,IDE)
-        IF(I .GE. IM .AND. I .LE. IP .AND. J .GE. JM .AND. J .LE. JP )THEN
-!       IF(I .EQ. IM .AND. J .EQ. JM)THEN
-          NSUM1 = NSUM1 + I*(105000.1 - PDYN(I,J))
-          NSUM2 = NSUM2 + J*(105000.1 - PDYN(I,J))
-          NSUM3 = NSUM3 + (105000.1 - PDYN(I,J))
-!         WRITE(0,*)'TEST',NSUM1,I,J,0.01*(105000.0 - PDYN(I,J)),PDYN(I,J) 
-        ENDIF
-       ENDDO
-      ENDDO
-      NSUM1 = WRF_DM_SUM_REAL(NSUM1)
-      NSUM2 = WRF_DM_SUM_REAL(NSUM2)
-      NSUM3 = WRF_DM_SUM_REAL(NSUM3)
-      NXLOC = NINT(NSUM1/NSUM3)
-      NYLOC = NINT(NSUM2/NSUM3)
-
-      WRITE(0,*)'NEW CALC',NSUM1,NSUM2,NSUM3
-      WRITE(0,*)'XLOC,YLOC',NXLOC,XLOC,NYLOC,YLOC
-
-      XLOC = NXLOC
-      YLOC = NYLOC
-
-    endif hwrfx_tracker
-!   END HRD TRACKER CODE ------------------------------------------------------
- 
-
-!   BEGIN OLD TRACKER CODE ----------------------------------------------------
-!     DETERMINE THE MAXIMUM MSLP AT ABOUT 18 GRID POINTS AWAY FROM THE STORM CENTER 
-    old_tracker_2: if ( vortex_tracker == 1 ) then
-
-      STMP1=0.0
-      DO J = JTS, MIN(JTE,JDE)
-        DO I = ITS, MIN(ITE,IDE)
-           IF(I .EQ. XLOC+18)THEN
-             XR=I
-             YR=J
-             STMP1=MSLP(I,J)
-           ENDIF
-        ENDDO
-      ENDDO
-
-      CALL WRF_DM_MAXVAL(STMP1,XR,YR)
-
-!
-!     DETERMINE IF THE ENTIRE NESTED DOMAIN IS OVER LAND (SM=0)
-!
-
-      SMSUM = 0.0
-      DO J = JTS, MIN(JTE,JDE)
-       DO I = ITS, MIN(ITE,IDE)
-         SMSUM = SMSUM + SM(I,J)
-       ENDDO
-      ENDDO
-
-      SMOUT=WRF_DM_SUM_REAL(SMSUM)/(IDE*JDE)
-
-!     STOP GRID MOTION. AVOID MOVING TOO RAPID GRID MOTION, SAY SOMETHING LIKE EVERY
-!     OTHER TIME STEP OR SO  
-
-      PGR=STMP1-STMP0
-   endif old_tracker_2
-!   END OLD TRACKER CODE ------------------------------------------------
-
- 
-      XDIFF=ABS(XLOC - IDE/2)
-      YDIFF=ABS(YLOC - JDE/2)
-#ifdef HWRF
-!zhang's doing
-      IF((.NOT.RESTART .AND. NTSD==0) .OR. MOVED)NTIME0=NTSD
-#else
-      IF(NTSD==0 .OR. MOVED)NTIME0=NTSD
-#endif
-      DTMOVE=NTSD-NTIME0                    ! TIME INTERVAL SINCE THE PREVIOUS MOVE
-!
-!    DECIDE IF NEST MOTION SHOULD HAPPEN
-!
-    if(vortex_tracker == 3) then
-      ! Using new HRD tracker.  Move if centroid moved.
-       IF(XDIFF .GE. 1 .OR. YDIFF .GE. 2) THEN
-        MVNEST=.TRUE.
-        NTIME0=NTSD
-       ELSE
-        ! Centroid has not moved one parent gridpoint yet.
-        MVNEST=.FALSE.
-       ENDIF
-    elseif(vortex_tracker==2) then
-       ! Tracking child domain.  Nest motion check happens in
-       ! direction_of_move2, but we MUST set mvnest=true here:
-       MVNEST=.TRUE.
-    elseif(vortex_tracker==1) then
-      ! Using old HWRF tracker.  Decide if it wants to move.
-      IF(DTMOVE .LE. 45 .OR. PGR .LE. 200.)THEN
-        WRITE(0,*)'SUSPEND MOTION: SMALL DTMOVE OR WEAK PGF:','DTMOVE=',DTMOVE,'PGR=',PGR
-        MVNEST=.FALSE.                               ! SET STATIC GRID
-      ELSE IF(STMP0 .GE. STMP1)THEN
-        WRITE(0,*)'SUSPEND MOTION: THERE IS NO VORTEX IN THE DOMAIN:','STMP0=',STMP0,'STMP1=',STMP1
-        MVNEST=.FALSE.
-      ELSE IF(XDIFF .GT. 24 .OR. YDIFF .GT. 24)THEN
-        WRITE(0,*)'SUSPEND MOTION: LOST VORTEX ','DTMOVE=',DTMOVE,'XDIFF=',XDIFF,'YDIFF=',YDIFF
-        MVNEST=.FALSE.
-      ELSE IF(SMOUT .LE. 0.2 .AND. XDIFF .GT. 12 .AND. YDIFF .GT. 12)THEN
-        WRITE(0,*)'SUSPEND MOTION: VORTEX LOST OVER LAND ','DTMOVE=',DTMOVE,'XDIFF=',XDIFF,'YDIFF=',YDIFF
-        MVNEST=.FALSE.
-      ELSE IF(SMOUT .LE. 0.2 .AND. PGR .LE. 400.)THEN
-        WRITE(0,*)'SUSPEND MOTION: VORTEX WEAK OVER LAND ','SMOUT=',SMOUT,'PGR=',PGR
-        MVNEST=.FALSE.
-      ELSE IF(SMOUT .LE. 0.2 .AND. DTMOVE .GE. 1500)THEN
-        WRITE(0,*)'SUSPEND MOTION: STOP MOTION  OVER LAND','SMOUT=',SMOUT,'DTMOVE=',DTMOVE
-        MVNEST=.FALSE.
-      ELSE
-        MVNEST=.TRUE.
-      ENDIF
-   else
-      ! Not using any valid trackers, so set MVNEST to false.
-      MVNEST=.false.
-   endif
-
-      RETURN
-
-END SUBROUTINE STATS_FOR_MOVE
 !----------------------------------------------------------------------------------
 SUBROUTINE MSLP_DIAG (MSLP,PINT,T,Q               &
                      ,FIS,PD,DETA1,DETA2,PDTOP    &
-                     ,IDS,IDE,JDS,JDE,KDS,KDE     &
+                     ,IDS,IDF,JDS,JDF,KDS,KDE     &
                      ,IMS,IME,JMS,JME,KMS,KME     &
                      ,ITS,ITE,JTS,JTE,KTS,KTE     )
 
@@ -658,8 +329,13 @@ SUBROUTINE MSLP_DIAG (MSLP,PINT,T,Q               &
 !
 ! ABSTRACT:
 !         THIS ROUTINE COMPUTES MSLP OVER THE PARENT DOMAIN FOR DIAGONOSTIC PURPOSE 
+!
+! Note: domain I & J end bounds are NOT the usual bounds.  They are
+! IDE-1 and JDE-1.
+!
 ! PROGRAM HISTORY LOG:
 !   07-21-2005  : gopal
+!   01-23-2012  : sam: removed 3D Z calculation, updated comments
 !
 ! USAGE: CALL MSLP_DIAG FROM THE SOLVER 
 !
@@ -675,7 +351,7 @@ SUBROUTINE MSLP_DIAG (MSLP,PINT,T,Q               &
 
 !     global variables
 
-      INTEGER,INTENT(IN)                                      :: IDS,IDE,JDS,JDE,KDS,KDE   &
+      INTEGER,INTENT(IN)                                      :: IDS,IDF,JDS,JDF,KDS,KDE   &
                                                                 ,IMS,IME,JMS,JME,KMS,KME   & 
                                                                 ,ITS,ITE,JTS,JTE,KTS,KTE   
 
@@ -690,40 +366,70 @@ SUBROUTINE MSLP_DIAG (MSLP,PINT,T,Q               &
       REAL, PARAMETER                                       :: LAPSR=6.5E-3, GI=1./G,D608=0.608
       REAL, PARAMETER                                       :: COEF3=287.05*GI*LAPSR, COEF2=-1./COEF3
       REAL, PARAMETER                                       :: TRG=2.0*R_D*GI,LAPSI=1.0/LAPSR
-      REAL                                                  :: RTOPP,APELP,DZ,SFCT,A
-      REAL, DIMENSION(IMS:IME,JMS:JME,KMS:KME)              :: Z
+      REAL                                                  :: RTOPP,APELP,DZ,SFCT,A,Z1,Z2
       INTEGER                                               :: I,J,K
 !-----------------------------------------------------------------------------------------------------
 
-
-     DO J = JTS, MIN(JTE,JDE)
-      DO I = ITS, MIN(ITE,IDE)
-         Z(I,J,1)=FIS(I,J)*GI
-      ENDDO
-     ENDDO
-
-     DO K = KTS,KTE
-      DO J = JTS, MIN(JTE,JDE)
-       DO I = ITS, MIN(ITE,IDE)
+     MSLP=-9999.99
+     K=1
+     DO J = JTS, MIN(JTE,JDF)
+       DO I = ITS, MIN(ITE,IDF)
+         Z1 = FIS(I,J)*GI
          APELP      = (PINT(I,J,K+1)+PINT(I,J,K))
          RTOPP      = TRG*T(I,J,K)*(1.0+Q(I,J,K)*P608)/APELP
          DZ         = RTOPP*(DETA1(K)*PDTOP+DETA2(K)*PD(I,J))
-         Z(I,J,K+1) = Z(I,J,K) + DZ
-       ENDDO
-      ENDDO
-     ENDDO
+         Z2         = Z1 + DZ
 
-     MSLP=-9999.99
-     DO J = JTS, MIN(JTE,JDE)
-       DO I = ITS, MIN(ITE,IDE)
-         SFCT      = T(I,J,1)*(1.+D608*Q(I,J,1)) + LAPSR*(Z(I,J,1)+Z(I,J,2))*0.5
-         A         = LAPSR*Z(I,J,1)/SFCT
+         SFCT      = T(I,J,1)*(1.+D608*Q(I,J,1)) + LAPSR*(Z1+Z2)*0.5
+         A         = LAPSR*Z1/SFCT
          MSLP(I,J) = PINT(I,J,1)*(1-A)**COEF2
        ENDDO
      ENDDO
 
-
 END SUBROUTINE MSLP_DIAG
+!------------------------------------------------------------------------------------------------------
+SUBROUTINE CALC_BEST_MSLP(BEST_MSLP,MSLP,MEMBRANE_MSLP,FIS &
+                         ,IDS,IDE,JDS,JDE,KDS,KDE     &
+                         ,IMS,IME,JMS,JME,KMS,KME     &
+                         ,ITS,ITE,JTS,JTE,KTS,KTE     )
+  ! Author: Sam Trahan, January 2014
+
+  ! Calculates a "best estimate" BEST_MSLP from the low-quality MSLP
+  ! (updated every timestep) and high-quality MEMBRANE_MSLP (updated
+  ! infrequently).  The MSLP is generally bad over high or sharp
+  ! terrain.
+  ! Cases:
+  !   invalid membrane_mslp: use mslp (leading edge of nest after move)
+  !   height>200m: use membrane_mslp, which is better over terrain
+  !   height<=0m:  use mslp, which should be identical to membrane_mslp here
+  !   0<height<200m: linearly interpolate between mslp at 0m and
+  !                  membrane_mslp at 200m to allow a smooth transition
+  use module_model_constants, only: g
+  integer, intent(in) :: IDS,IDE,JDS,JDE,KDS,KDE     &
+                        ,IMS,IME,JMS,JME,KMS,KME     &
+                        ,ITS,ITE,JTS,JTE,KTS,KTE
+  real, dimension(ims:ime,jms:jme), intent(in) :: MSLP,MEMBRANE_MSLP,FIS
+  real, dimension(ims:ime,jms:jme), intent(out) :: BEST_MSLP
+  integer :: i,j
+  real :: z,w
+  real, parameter :: gi=1./g
+  
+  do j=max(jts,jds), min(jte,jde-1)
+     do i=max(its,ids), min(ite,ide-1)
+        if(membrane_mslp(i,j)<7e4) then
+           best_mslp(i,j)=mslp(i,j)
+        else
+           z=fis(i,j)*gi
+           if(z<200.) then
+              w=max(0.,z)/200.
+              best_mslp(i,j)=membrane_mslp(i,j)*w+mslp(i,j)*(1-w)
+           else
+              best_mslp(i,j)=membrane_mslp(i,j)
+           endif
+        endif
+     enddo
+  enddo
+END SUBROUTINE CALC_BEST_MSLP
 !------------------------------------------------------------------------------------------------------
 
 END  MODULE module_NEST_UTIL

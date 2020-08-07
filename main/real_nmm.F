@@ -11,7 +11,7 @@ PROGRAM real_data
    USE module_configure
    USE module_timing
    USE module_check_a_mundo
-#ifdef WRF_CHEM
+#if ( WRF_CHEM == 1 )
    USE module_input_chem_data
    USE module_input_chem_bioemiss
 #endif
@@ -56,6 +56,7 @@ PROGRAM real_data
 #endif
 
    CHARACTER (LEN=80)     :: message
+   CHARACTER*255 :: mess
 
    INTEGER :: start_year , start_month , start_day 
    INTEGER :: start_hour , start_minute , start_second
@@ -113,6 +114,8 @@ PROGRAM real_data
 #else
    CALL initial_config
 #endif
+   
+   CALL nl_set_use_wps_input ( 1,1 )
 
    CALL check_nml_consistency
    CALL set_physics_rconfigs
@@ -188,7 +191,7 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
    USE module_bc_time_utilities
    USE module_initialize_real
    USE module_optional_input
-#ifdef WRF_CHEM
+#if ( WRF_CHEM == 1 )
    USE module_input_chem_data
    USE module_input_chem_bioemiss
 #endif
@@ -243,7 +246,7 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
    INTEGER     :: sm31y, em31y, sm32y, em32y, sm33y, em33y
 #endif
 
-#if defined(HWRF)
+#if ( HWRF == 1 )
   ! Sam Says:
 
   ! The *INIT arrays are used to read init data written out by hwrf_prep_hybrid
@@ -267,7 +270,6 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
 #endif
 
 #include "deref_kludge.h"
-
 
    grid%input_from_file = .true.
    grid%input_from_file = .false.
@@ -336,7 +338,7 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
       write(message,*) 'TRIM(config_flags%auxinput1_inname): ', TRIM(config_flags%auxinput1_inname)
       CALL wrf_message(message)
        
-#if defined(HWRF)
+#if ( HWRF == 1 )
      ifph_onlyfirst: if(.not.grid%use_prep_hybrid .or. loop==1) then
 #endif
       IF (config_flags%auxinput1_inname(1:10) .eq. 'real_input') THEN
@@ -344,8 +346,8 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
       ENDIF
 
       SELECT CASE ( use_package(io_form_auxinput1) )
-#ifdef NETCDF
-      CASE ( IO_NETCDF   )
+#if defined(NETCDF) || defined(PNETCDF) || defined(PIO)
+      CASE ( IO_NETCDF , IO_PNETCDF , IO_PIO )
 
       !  Open the wrfinput file.
 
@@ -379,7 +381,6 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
       CALL wrf_debug ( 100 , 'med_sidata_input: calling optional_input' )
 !
       CALL optional_input ( grid , idsi , config_flags )
-	write(0,*) 'maxval st_input(1) within real_nmm: ', maxval(st_input(:,1,:))
       END IF
 !
       CALL close_dataset ( idsi , config_flags , "DATASET=AUXINPUT1" )
@@ -420,7 +421,7 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
       CASE DEFAULT
         CALL wrf_error_fatal('real: not valid io_form_auxinput1')
       END SELECT
-#if defined(HWRF)
+#if ( HWRF == 1 )
      endif ifph_onlyfirst
 #endif
 
@@ -438,7 +439,7 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
 
       CALL init_domain ( grid )
 
-#if defined(HWRF)
+#if ( HWRF == 1 )
      read_phinit: if(grid%use_prep_hybrid) then
 #if defined(DM_PARALLEL)
         if(.not. wrf_dm_on_monitor()) then
@@ -505,7 +506,8 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
            if(ioerror/=0) then
               call wrf_error_fatal('Unable to read MAKBND output from unit 900.')
            endif
-           WRITE(0,*) 'U V T AT 10 10 10 ',UINIT(10,10,10),VINIT(10,10,10),TINIT(10,10,10)
+           WRITE(mess,*) 'U V T AT 10 10 10 ',UINIT(10,10,10),VINIT(10,10,10),TINIT(10,10,10)
+           call wrf_message(mess)
            ! Switch from IKJ to IJK ordering
            DO I = ids,ide-1
               DO J = jds,jde-1
@@ -543,7 +545,7 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
         CALL start_domain ( grid , .TRUE.)
       END IF
 
-#ifdef WRF_CHEM
+#if ( WRF_CHEM == 1 )
       IF ( loop == 1 ) THEN
 !        IF ( ( grid%chem_opt .EQ. RADM2     ) .OR. &
 !             ( grid%chem_opt .EQ. RADM2SORG ) .OR. &
@@ -696,7 +698,7 @@ SUBROUTINE assemble_output ( grid , config_flags , loop , time_loop_max )
    USE module_bc
    IMPLICIT NONE
 
-#if defined(HWRF)
+#if ( HWRF == 1 )
   external get_wrf_debug_level
   integer :: debug
 #endif
@@ -704,7 +706,7 @@ SUBROUTINE assemble_output ( grid , config_flags , loop , time_loop_max )
    TYPE(domain)                 :: grid
    TYPE (grid_config_rec_type)  :: config_flags
    INTEGER , INTENT(IN)         :: loop , time_loop_max
-
+   character*255 :: mess
    INTEGER :: ids , ide , jds , jde , kds , kde
    INTEGER :: ims , ime , jms , jme , kms , kme
    INTEGER :: ips , ipe , jps , jpe , kps , kpe
@@ -737,7 +739,7 @@ character *24 :: temp24 , temp24b
    INTEGER     :: sm31y, em31y, sm32y, em32y, sm33y, em33y
 #endif
 
-#if defined(HWRF)
+#if ( HWRF == 1 )
   ! Sam says:
 
   ! The *B arrays are used to read boundary data written out by hwrf_prep_hybrid
@@ -758,7 +760,7 @@ character *24 :: temp24 , temp24b
 
 #include "deref_kludge.h"
 
-#if defined(HWRF)
+#if ( HWRF == 1 )
   alloc_ph_arrays=.false.
   call get_wrf_debug_level(debug)
 #endif
@@ -1097,7 +1099,7 @@ character *24 :: temp24 , temp24b
 !-----------------------------------------------------------------------
 
      call wrf_debug(1,'LOOP>1, so start making non-init boundary conditions')
-#if defined(HWRF)
+#if ( HWRF == 1 )
 
      bdytmp_useph: if(grid%use_prep_hybrid) then
         call wrf_debug(1,'ALLOCATE PREP_HYBRID BOUNDARY ARRAYS')
@@ -1144,8 +1146,9 @@ character *24 :: temp24 , temp24b
                  write(message,*)'southtend q',k,i,n,qbdy3dtemp2(i,j,k)
                  call wrf_debug(10,message)
                  if (K .eq. 1 ) then
-                    write(0,*) 'S boundary values T,Q : ', I,tbdy3dtemp2(i,j,k),  &
+                    write(mess,*) 'S boundary values T,Q : ', I,tbdy3dtemp2(i,j,k),  &
                          qbdy3dtemp2(i,j,k)
+                    call wrf_debug(1,message)
                  endif
                  N=N+1
               END DO
@@ -1309,7 +1312,7 @@ character *24 :: temp24 , temp24b
 
            CALL output_auxinput4 ( id4, grid , config_flags , ierr )
 
-#if defined( HWRF)
+#if ( HWRF == 1 )
      endif bdytmp_useph
 #endif
 
@@ -1333,7 +1336,7 @@ character *24 :: temp24 , temp24b
          CALL domain_clockadvance( grid )
       END IF
 
-#if defined(HWRF)
+#if ( HWRF == 1 )
      bdytmp_notph: if(.not.grid%use_prep_hybrid) then
 #endif
 !-----------------------------------------------------------------------
@@ -1463,7 +1466,7 @@ character *24 :: temp24 , temp24b
 	endif
           END DO
         ENDIF
-#if defined(HWRF)
+#if ( HWRF == 1 )
      endif bdytmp_notph
 #endif
 !-----------------------------------------------------------------------
@@ -1671,7 +1674,7 @@ character *24 :: temp24 , temp24b
 
    END IF main_loop_test
 
-#if defined(HWRF)
+#if ( HWRF == 1 )
   if(alloc_ph_arrays) then
      call wrf_debug(1,'DEALLOCATE PREP_HYBRID BOUNARY ARRAYS')
      deallocate(TB,QB,CWMB,UB,VB,PDB)

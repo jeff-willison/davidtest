@@ -14,8 +14,7 @@ CONTAINS
                ids,ide, jds,jde, kds,kde                     &
               ,ims,ime, jms,jme, kms,kme                     &
               ,its,ite, jts,jte, kts,kte                     &
-              ,DT,KTAU,DX,CUDT,CURR_SECS,ADAPT_STEP_FLAG     &
-              ,CUDTACTTIME                                   & 
+              ,DT,KTAU,DX,CUDT,ADAPT_STEP_FLAG               &
               ,rho                                           &
               ,RAINCV,PRATEC,NCA                             &
               ,U,V,TH,T,W,QV,dz8w,Pcps,pi                    &
@@ -26,6 +25,10 @@ CONTAINS
               ,F_QV    ,F_QC    ,F_QR    ,F_QI    ,F_QS      &
               ,RQVCUTEN,RQCCUTEN,RQRCUTEN,RQICUTEN,RQSCUTEN  &
               ,RTHCUTEN                                      &
+!kf_edrates
+              ,UDR_KF,DDR_KF                                 &
+              ,UER_KF,DER_KF                                 &
+              ,TIMEC_KF,KF_EDRATES                           &
                                                              )
 !-------------------------------------------------------------
    IMPLICIT NONE
@@ -59,9 +62,7 @@ CONTAINS
 !
    REAL,  INTENT(IN   ) :: DT, DX
    REAL,  INTENT(IN   ) :: CUDT
-   REAL,  INTENT(IN   ) :: CURR_SECS
    LOGICAL,OPTIONAL, INTENT(IN  ) :: ADAPT_STEP_FLAG
-   REAL,  INTENT (INOUT) :: CUDTACTTIME       
 
    REAL, DIMENSION( ims:ime , jms:jme ),                     &
           INTENT(INOUT) ::                                   &
@@ -105,7 +106,19 @@ CONTAINS
                                                   ,F_QI      &
                                                   ,F_QS
 
+!kf_edrates
+   REAL,  DIMENSION( ims:ime , kms:kme , jms:jme )         , &
+          INTENT(INOUT) ::                         &
+                                                     UDR_KF, &
+                                                     DDR_KF, &
+                                                     UER_KF, &
+                                                     DER_KF
 
+   REAL,  DIMENSION( ims:ime , jms:jme )                   , &
+          INTENT(INOUT) ::                         &
+                                                   TIMEC_KF
+
+   INTEGER, INTENT(IN) ::              KF_EDRATES
 
 ! LOCAL VARS
 
@@ -135,7 +148,6 @@ CONTAINS
 ! adjustable time step changes
    REAL    :: lastdt = -1.0
    REAL    :: W0AVGfctr, W0fctr, W0den
-   LOGICAL :: run_param , doing_adapt_dt , decided
 
 !----------------------------------------------------------------------
 
@@ -165,7 +177,7 @@ CONTAINS
 !  ICLDCK=MOD(KTAU,NTST)                                              
 !----------------------
 !  write(0,*) 'DT = ',DT,'  KTAU = ',KTAU,' DX = ',DX
-!  write(0,*) 'CUDT = ',CUDT,'  CURR_SECS = ',CURR_SECS
+!  write(0,*) 'CUDT = ',CUDT
 !  write(0,*) 'ADAPT_STEP_FLAG = ',ADAPT_STEP_FLAG,' IDS = ',IDS
 !  write(0,*) 'STEPCU = ',STEPCU,' warm_rain = ',warm_rain
 !  write(0,*) 'F_QV = ',F_QV,' F_QC = ',F_QV
@@ -207,66 +219,6 @@ CONTAINS
    ENDDO
    lastdt = dt
 
-!  Initialization for adaptive time step.
-
-   doing_adapt_dt = .FALSE.
-   IF ( PRESENT(adapt_step_flag) ) THEN
-      IF ( adapt_step_flag ) THEN
-         doing_adapt_dt = .TRUE.
-         IF ( cudtacttime .EQ. 0. ) THEN
-            cudtacttime = curr_secs + cudt*60.
-         END IF
-      END IF
-   END IF
-
-!  Do we run through this scheme or not?
-
-!    Test 1:  If this is the initial model time, then yes.  
-!                KTAU=1
-!    Test 2:  If the user asked for the cumulus to be run every time step, then yes.  
-!                CUDT=0 or STEPCU=1
-!    Test 3:  If not adaptive dt, and this is on the requested cumulus frequency, then yes.  
-!                MOD(KTAU,NST)=0
-!    Test 4:  If using adaptive dt and the current time is past the last requested activate cumulus time, then yes.  
-!                CURR_SECS >= CUDTACTTIME
-
-!  If we do run through the scheme, we set the flag run_param to TRUE and we set the decided flag
-!  to TRUE.  The decided flag says that one of these tests was able to say "yes", run the scheme.
-!  We only proceed to other tests if the previous tests all have left decided as FALSE.
-
-!  If we set run_param to TRUE and this is adaptive time stepping, we set the time to the next
-!  cumulus run.
-
-   decided = .FALSE.
-   run_param = .FALSE.
-   IF ( ( .NOT. decided ) .AND. &
-        ( ktau .EQ. 1 ) ) THEN
-      run_param   = .TRUE.
-      decided     = .TRUE.
-   END IF
-
-   IF ( ( .NOT. decided ) .AND. &
-        ( ( cudt .EQ. 0. ) .OR. ( stepcu .EQ. 1 ) ) ) THEN
-      run_param   = .TRUE.
-      decided     = .TRUE.
-   END IF
-
-   IF ( ( .NOT. decided ) .AND. &
-        ( .NOT. doing_adapt_dt ) .AND. &
-        ( MOD(ktau,ntst) .EQ. 0 ) ) THEN
-      run_param   = .TRUE.
-      decided     = .TRUE.
-   END IF
-
-   IF ( ( .NOT. decided ) .AND. &
-        ( doing_adapt_dt ) .AND. &
-        ( curr_secs .GE. cudtacttime ) ) THEN
-      run_param   = .TRUE.
-      decided     = .TRUE.
-      cudtacttime = curr_secs + cudt*60
-   END IF
-
-   IF (run_param) then
      DO J = jts,jte  
      DO I= its,ite
         CU_ACT_FLAG(i,j) = .true.
@@ -292,6 +244,16 @@ CONTAINS
                DQSDT(k)=0.      
                DTDT(k)=0.
             ENDDO
+!kf_edrates
+            IF (KF_EDRATES == 1) THEN
+               DO k=kts,kte
+                  UDR_KF(I,k,J)=0.
+                  DDR_KF(I,k,J)=0.
+                  UER_KF(I,k,J)=0.
+                  DER_KF(I,k,J)=0.
+               ENDDO
+               TIMEC_KF(I,J)=0.
+            ENDIF
             RAINCV(I,J)=0.
 	    PRATEC(I,J)=0.
 !
@@ -319,7 +281,11 @@ CONTAINS
                  warm_rain,qi_flag,qs_flag,         &
                  ids,ide, jds,jde, kds,kde,         &        
                  ims,ime, jms,jme, kms,kme,         &
-                 its,ite, jts,jte, kts,kte          )
+                 its,ite, jts,jte, kts,kte,         &
+!kf_edrates
+                 UDR_KF,DDR_KF,                     &
+                 UER_KF,DER_KF,                     &
+                 TIMEC_KF,KF_EDRATES                )
  
             IF ( PRESENT( RTHCUTEN ) .AND. PRESENT( RQVCUTEN ) ) THEN
               DO K=kts,kte
@@ -362,8 +328,6 @@ CONTAINS
        ENDDO
      ENDDO
 
-   ENDIF
-
    END SUBROUTINE KFCPS
    
 !-----------------------------------------------------------
@@ -377,7 +341,11 @@ CONTAINS
                       warm_rain,qi_flag,qs_flag,           &
                       ids,ide, jds,jde, kds,kde,           & 
                       ims,ime, jms,jme, kms,kme,           &
-                      its,ite, jts,jte, kts,kte            )
+                      its,ite, jts,jte, kts,kte,           &
+!kf_edrates
+                      UDR_KF,DDR_KF,                       &
+                      UER_KF,DER_KF,                       &
+                      TIMEC_KF,KF_EDRATES                  )
 !-----------------------------------------------------------
       IMPLICIT NONE
 !-----------------------------------------------------------
@@ -417,6 +385,19 @@ CONTAINS
             INTENT(INOUT) ::                       RAINCV, &
                                                    PRATEC, &
                                                       NCA
+
+!kf_edrates
+      REAL, DIMENSION( ims:ime , kms:kme , jms:jme ),      &
+            INTENT(INOUT) ::       UDR_KF,       &
+                                             DDR_KF,       &
+                                             UER_KF,       &
+                                             DER_KF
+
+      REAL, DIMENSION( ims:ime , jms:jme ),                &
+            INTENT(INOUT) ::     TIMEC_KF
+
+      INTEGER, INTENT(IN) ::         KF_EDRATES
+
 !
 !...DEFINE LOCAL VARIABLES...                                
 !                                                            
@@ -1804,6 +1785,18 @@ CONTAINS
 !                                                         
         GOTO 175                                         
   265   CONTINUE                                        
+
+!kf_edrates
+!Save up/down entrainment/detrainment rates as 3D variables
+        IF (KF_EDRATES == 1) THEN
+           DO NK=1,LTOP
+             UDR_KF(I,NK,J)=UDR(NK)
+             DDR_KF(I,NK,J)=DDR(NK)
+             UER_KF(I,NK,J)=UER(NK)
+             DER_KF(I,NK,J)=DER(NK)
+           ENDDO
+        ENDIF
+
 !                                                      
 !...CLEAN THINGS UP, CALCULATE CONVECTIVE FEEDBACK TENDENCIES FOR THIS    
 !...GRID POINT...                                                        
@@ -1877,6 +1870,13 @@ CONTAINS
           QRG(NK)=QRPA(NK)                                           
           QSG(NK)=QSPA(NK)                                          
   295   CONTINUE                                                  
+
+!kf_edrates
+!Save convective timescale (TIMEC) as 2D variable
+        IF (KF_EDRATES == 1) THEN
+           TIMEC_KF(I,J)=TIMEC
+        ENDIF
+
 !     WRITE(98,1080)LFS,LDB,LDT,TIMEC,NSTEP,NCOUNT,FABE,AINC     
 !                                                               
 !...SEND FINAL PARAMETERIZED VALUES TO OUTPUT FILES...         

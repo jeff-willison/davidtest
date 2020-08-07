@@ -49,7 +49,7 @@ CONTAINS
 
         CALL init_domain_nmm (grid &
 !
-#include <actual_new_args.inc>
+#include "actual_new_args.inc"
 !
       )
 
@@ -59,7 +59,7 @@ CONTAINS
 !---------------------------------------------------------------------
    SUBROUTINE init_domain_nmm ( grid &
 !
-# include <dummy_new_args.inc>
+# include "dummy_new_args.inc"
 !
    )
 
@@ -71,7 +71,7 @@ CONTAINS
 !     TYPE (domain), POINTER :: grid
       TYPE (domain)          :: grid
 
-# include <dummy_new_decl.inc>
+# include "dummy_new_decl.inc"
 
 
 real      ,DIMENSION(grid%sm31:grid%em31,grid%sm32:grid%em32,1:grid%num_metgrid_levels)           :: ght_out
@@ -176,7 +176,7 @@ real      ,DIMENSION(grid%sm31:grid%em31,grid%sm32:grid%em32,1:grid%num_soil_cat
 
         REAL, PARAMETER:: DTR=0.01745329
         REAL, PARAMETER:: W_NMM=0.08
-#if defined(HWRF)
+#if ( HWRF == 1 )
         REAL, PARAMETER:: DDFC=1.0
 #else
         REAL, PARAMETER:: DDFC=8.0
@@ -201,7 +201,7 @@ real      ,DIMENSION(grid%sm31:grid%em31,grid%sm32:grid%em32,1:grid%num_soil_cat
         REAL, PARAMETER:: TG0=258.16
         REAL, PARAMETER:: TGA=30.0
     integer :: numzero,numexamined
-#ifdef HWRF
+#if ( HWRF == 1 )
 !============================================================================
 !   gopal's doing for ocean coupling
 !============================================================================
@@ -222,9 +222,9 @@ real      ,DIMENSION(grid%sm31:grid%em31,grid%sm32:grid%em32,1:grid%num_soil_cat
         if (ALLOCATED(TG_ALT)) DEALLOCATE(TG_ALT)
 
 !#define COPY_IN
-!#include <scalar_derefs.inc>
+!#include "scalar_derefs.inc"
 #ifdef DM_PARALLEL
-#    include <data_calls.inc>
+#    include "data_calls.inc"
 #endif
 
       SELECT CASE ( model_data_order )
@@ -405,8 +405,8 @@ real      ,DIMENSION(grid%sm31:grid%em31,grid%sm32:grid%em32,1:grid%num_soil_cat
       !  Pull in the info in the namelist to compare it to the input data.
 
       grid%real_data_init_type = model_config_rec%real_data_init_type
-      write(message,*) 'what is flag_metgrid: ', flag_metgrid
-      CALL wrf_message(message)
+!      write(message,*) 'what is flag_metgrid: ', flag_metgrid
+!      CALL wrf_message(message)
 
      IF ( flag_metgrid .EQ. 1 ) THEN  !   <----- START OF VERTICAL INTERPOLATION PART ---->
 
@@ -426,6 +426,10 @@ ips=its ; ipe=ite ;  jps=jts ; jpe=jte ; kps=kts ; kpe=kte
 !JWB # include "HALO_NMM_IDEAL_1.inc"
 #endif
 !
+ WRITE(message,*)'--------------- ght_gc before calling vortex --------------------------'
+! call wrf_debug(1,message)
+! WRITE(message,*)grid%ght_gc(100,100,:)
+
   CALL vortex ( grid%ght_gc,grid%rh_gc,grid%t_gc,grid%u_gc,grid%v_gc,grid%p_gc &
      &,         ght_out,rh_out,t_out,u_out,v_out      &
      &,         grid%ht_gc,grid%tsk_gc,grid%xice_gc                          &
@@ -459,7 +463,7 @@ ips=its ; ipe=ite ;  jps=jts ; jpe=jte ; kps=kts ; kpe=kte
      &,                            IMS,IME,JMS,JME,KMS,KME        &
      &,                            ITS,ITE,JTS,JTE,KTS,KTE )
 
-#if defined(HWRF)
+#if ( HWRF == 1 )
           if(.not. grid%use_prep_hybrid) then
 #endif
 
@@ -488,7 +492,7 @@ ips=its ; ipe=ite ;  jps=jts ; jpe=jte ; kps=kts ; kpe=kte
      &,                            IMS,IME,JMS,JME,KMS,KME        &
      &,                            ITS,ITE,JTS,JTE,KTS,KTE )
 
-#if defined(HWRF)
+#if ( HWRF == 1 )
           endif
 #endif
 
@@ -538,18 +542,19 @@ ips=its ; ipe=ite ;  jps=jts ; jpe=jte ; kps=kts ; kpe=kte
         if (grid%tsk_gc(I,J) .gt. 0.) then
            grid%nmm_tsk(I,J)=grid%tsk_gc(I,J)
         else
-#if defined(HWRF)
+#if ( HWRF == 1 )
                 if(grid%use_prep_hybrid) then
                    if(grid%t(I,J,1)<100) then
-                      write(*,*) 'NO VALID SURFACE TEMPERATURE: I,J,TSK_GC(I,J),T(I,J,1) = ', &
+                      write(message,*) 'NO VALID SURFACE TEMPERATURE: I,J,TSK_GC(I,J),T(I,J,1) = ', &
                            I,J,grid%TSK_GC(I,J),grid%T(I,J,1)
+                      call wrf_debug(1,message)
                    else
                       grid%nmm_tsk(I,J)=grid%t(I,J,1) ! stopgap measure
                    end if
                 else
 #endif
            grid%nmm_tsk(I,J)=grid%t_gc(I,J,1) ! stopgap measure
-#if defined(HWRF)
+#if ( HWRF == 1 )
                 endif
 #endif
         endif
@@ -571,7 +576,7 @@ ips=its ; ipe=ite ;  jps=jts ; jpe=jte ; kps=kts ; kpe=kte
         if (internal_time_loop .eq. 1) then
 
         if (eta_levels(1) .ne. 1.0) then
-#if defined(HWRF)
+#if ( HWRF == 1 )
              if(grid%use_prep_hybrid) then
                 call wrf_error_fatal('PREP_HYBRID ERROR: eta_levels is not specified, but use_prep_hybrid=.true.')
              end if
@@ -655,7 +660,7 @@ ips=its ; ipe=ite ;  jps=jts ; jpe=jte ; kps=kts ; kpe=kte
        enddo
        write(message,*) 'TOTAL NEAR-ZERO FIS POINTS: ',numzero,' OF ',numexamined
        call wrf_debug(10,message)
-#if defined(HWRF)
+#if ( HWRF == 1 )
        interp_notph: if(.not. grid%use_prep_hybrid) then
 #endif
       if (.NOT. allocated(PDVP))     allocate(PDVP(IMS:IME,JMS:JME))
@@ -815,7 +820,7 @@ ips=its ; ipe=ite ;  jps=jts ; jpe=jte ; kps=kts ; kpe=kte
 
       IF (ALLOCATED(QTMP)) DEALLOCATE(QTMP)
       IF (ALLOCATED(QTMP)) DEALLOCATE(QTMP2)
-#if defined(HWRF)
+#if ( HWRF == 1 )
        else ! we are using prep_hybrid
           ! Compute surface pressure:
           grid%psfc_out=grid%pdtop+grid%pd
@@ -879,12 +884,12 @@ ips=its ; ipe=ite ;  jps=jts ; jpe=jte ; kps=kts ; kpe=kte
 
          endif
 
-#if defined(HWRF)
+#if ( HWRF == 1 )
        if(.not.grid%use_prep_hybrid) then
 #endif
 !  new deallocs
         DEALLOCATE(p3d_out,p3dv_out,p3dv_in)
-#if defined(HWRF)
+#if ( HWRF == 1 )
        end if
 #endif
 
@@ -1079,7 +1084,7 @@ ips=its ; ipe=ite ;  jps=jts ; jpe=jte ; kps=kts ; kpe=kte
      &,                                ITS,ITE,JTS,JTE,1,1 )
 
         IF (WRF_DM_ON_MONITOR()) THEN
-#if defined(HWRF)
+#if ( HWRF == 1 )
           ! SM_G is still needed for the high-res grid
 #else
           DEALLOCATE(SM_G)
@@ -2070,7 +2075,7 @@ ips=its ; ipe=ite ;  jps=jts ; jpe=jte ; kps=kts ; kpe=kte
        write(message,*)'STUFF MOVED TO REGISTRY:',grid%IDTAD,          &
      & grid%NSOIL,grid%NRADL,grid%NRADS,grid%NPHS,grid%NCNVC,grid%sigma
        CALL wrf_message( TRIM(message) )
-#ifdef HWRF
+#if ( HWRF == 1 )
 !=========================================================================================
 !   gopal's doing for ocean coupling. Produce a high resolution grid for the entire domain
 !=========================================================================================
@@ -2164,7 +2169,7 @@ ips=its ; ipe=ite ;  jps=jts ; jpe=jte ; kps=kts ; kpe=kte
 #endif
 
 !#define COPY_OUT
-!#include <scalar_derefs.inc>
+!#include "scalar_derefs.inc"
       RETURN
 
    END SUBROUTINE init_domain_nmm
@@ -4683,7 +4688,7 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
  REAL,  DIMENSION(IMS:IME,JMS:JME,start_z:end_z) :: pert_ght,pert_rh,pert_t,pert_u,pert_v,pert_p,temp0
 !New Vortex Related
  DATA beta1 /0.0/   ! 0.0 sets non-linear balance equation vortex. GFDL vortex for beta1 between 0.1 and 1.5
-
+ character*255 :: message
  REAL, ALLOCATABLE,DIMENSION(:,:)   :: psc
  REAL, ALLOCATABLE,DIMENSION(:,:,:) :: u_temp,v_temp,t_temp,ght_temp,rh_temp
 
@@ -4696,20 +4701,35 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
 !----------------------------------------------------------------------------
 
  WRITE(0,*)'---------------- IDEAL CASE -------------------------'
- WRITE(0,*)'number of pressure levels',end_z
- WRITE(0,*)'number of vegcat   levels',num_veg_cat
- WRITE(0,*)'number of soiltop  levels',num_soil_top_cat
- WRITE(0,*)'number of soilbot  levels',num_soil_bot_cat
- WRITE(0,*)'--------------- ght_gc --------------------------'
- WRITE(0,*)ght_gc(100,100,:)
- WRITE(0,*)'--------------- p_gc --------------------------'
- WRITE(0,*)p_gc(100,100,:)
- WRITE(0,*)'--------------- rh_gc ---------------------------'
- WRITE(0,*)rh_gc(100,100,:)
- WRITE(0,*)'--------------- t_gc --------------------------'
- WRITE(0,*)t_gc(100,100,:)
- WRITE(0,*)'------------------------------------------------'
- WRITE(0,*)'------------------------------------------------'
+ call wrf_debug(1,message)
+ WRITE(message,*)'number of pressure levels',end_z
+ call wrf_debug(1,message)
+ WRITE(message,*)'number of vegcat   levels',num_veg_cat
+ call wrf_debug(1,message)
+ WRITE(message,*)'number of soiltop  levels',num_soil_top_cat
+ call wrf_debug(1,message)
+ WRITE(message,*)'number of soilbot  levels',num_soil_bot_cat
+ call wrf_debug(1,message)
+ WRITE(message,*)'--------------- ght_gc --------------------------'
+! call wrf_debug(1,message)
+! WRITE(message,*)ght_gc(100,100,:)
+! call wrf_debug(1,message)
+ WRITE(message,*)'--------------- p_gc --------------------------'
+! call wrf_debug(1,message)
+! WRITE(message,*)p_gc(100,100,:)
+! call wrf_debug(1,message)
+ WRITE(message,*)'--------------- rh_gc ---------------------------'
+! call wrf_debug(1,message)
+! WRITE(message,*)rh_gc(100,100,:)
+! call wrf_debug(1,message)
+ WRITE(message,*)'--------------- t_gc --------------------------'
+! call wrf_debug(1,message)
+! WRITE(message,*)t_gc(100,100,:)
+! call wrf_debug(1,message)
+ WRITE(message,*)'------------------------------------------------'
+! call wrf_debug(1,message)
+! WRITE(message,*)'------------------------------------------------'
+! call wrf_debug(1,message)
 
 !
 !   SET UP IDEAL CONDITIONS
@@ -4780,7 +4800,7 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
   IF (WRF_DM_ON_MONITOR()) THEN
 !orig   OPEN(21,file='../MESSAGES/storm.center',status='old')
 !repository messages
-   OPEN(21,file='../messages/storm.center',status='old')
+   OPEN(21,file='storm.center',status='old')
    read(21,*)glat0
    read(21,*)glon0
    close(21)
@@ -4789,7 +4809,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
   CALL wrf_dm_bcast_bytes (glat0,IWORDSIZE)
   CALL wrf_dm_bcast_bytes (glon0,IWORDSIZE)
 
-  WRITE(0,*)'glat0 and glon0',glat0,glon0
+  WRITE(message,*)'glat0 and glon0',glat0,glon0
+  call wrf_debug(1,message)
 
 !
 !
@@ -4820,7 +4841,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
   id1=-999
   jd1=-999
   minval_gh=MINVAL(ght_gc(ids:ide-1,jds:jde-1,10))
-  write(0,*)'MIN VAL OF GH NEW=',minval_gh
+  write(message,*)'MIN VAL OF GH NEW=',minval_gh
+  call wrf_debug(1,message)
   do j=jts,min(jte,jde-1)
    do i=its,min(ite,ide-1)
       if(minval_gh .EQ. ght_gc(i,j,10))then
@@ -4829,15 +4851,25 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
       endif
     enddo
   enddo
+! jbao-put storm in center
+        id1=ide/2
+        jd1=jde/2
+! end jbao-put storm in center
+
 
   IF(abs(ID0-ID1) .GE. 5 .OR. abs(JD0-JD1) .GE. 5)THEN
 !   call wrf_error_fatal("LAT LON INFO IN STROM MESSAGE FILE IN INCORRECT")
-    write(0,*) 'WARNING - ACTUAL STORM LOCATION DIFFERENT FROM MODEL LOCATION'
-    WRITE(0,*)'OLD CENTER',ID0,JD0
-    WRITE(0,*)'NEW CENTER',ID1,JD1
+    write(message,*) 'WARNING - ACTUAL STORM LOCATION DIFFERENT FROM MODEL LOCATION'
+    call wrf_debug(1,message)
+    WRITE(message,*)'OLD CENTER',ID0,JD0
+    call wrf_debug(1,message)
+    WRITE(message,*)'NEW CENTER',ID1,JD1
+    call wrf_debug(1,message)
   ELSE
-    WRITE(0,*)'OLD CENTER',ID0,JD0
-    WRITE(0,*)'NEW CENTER',ID1,JD1
+    WRITE(message,*)'OLD CENTER',ID0,JD0
+    call wrf_debug(1,message)
+    WRITE(message,*)'NEW CENTER',ID1,JD1
+    call wrf_debug(1,message)
   ENDIF
 
 !
@@ -4882,7 +4914,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
       nmax=1*nfilter
     endif
 
-    WRITE(0,*)'CALLING HBFILTER'
+    WRITE(message,*)'CALLING HBFILTER'
+    call wrf_debug(1,message)
 
     CALL hbfilter ( ght_gc,ght_out               &
         &,          nmax,start_z,end_z           &
@@ -4890,7 +4923,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
         &,          ims,ime,jms,jme              &
         &,          its,ite,jts,jte              )
 
-    WRITE(0,*)'COMPLETED FILTERING ght_gc'
+    WRITE(message,*)'COMPLETED FILTERING ght_gc'
+    call wrf_debug(1,message)
 
     CALL hbfilter ( t_gc,t_out                   &
         &,          nmax,start_z,end_z           &
@@ -4898,7 +4932,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
         &,          ims,ime,jms,jme              &
         &,          its,ite,jts,jte              )
 
-    WRITE(0,*)'COMPLETED FILTERING t_gc'
+    WRITE(message,*)'COMPLETED FILTERING t_gc'
+    call wrf_debug(1,message)
 
     CALL hbfilter ( rh_gc,rh_out                 &
         &,          nmax,start_z,end_z           &
@@ -4906,7 +4941,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
         &,          ims,ime,jms,jme              &
         &,          its,ite,jts,jte              )
 
-    WRITE(0,*)'COMPLETED FILTERING rh_gc'
+    WRITE(message,*)'COMPLETED FILTERING rh_gc'
+    call wrf_debug(1,message)
 
     CALL hbfilter ( u_gc,u_out                   &
         &,          nmax,start_z,end_z           &
@@ -4914,7 +4950,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
         &,          ims,ime,jms,jme              &
         &,          its,ite,jts,jte              )
 
-    WRITE(0,*)'COMPLETED FILTERING u_gc'
+    WRITE(message,*)'COMPLETED FILTERING u_gc'
+    call wrf_debug(1,message)
 
     CALL hbfilter ( v_gc,v_out                   &
         &,          nmax,start_z,end_z           &
@@ -4922,9 +4959,11 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
         &,          ims,ime,jms,jme              &
         &,          its,ite,jts,jte              )
 
-    WRITE(0,*)'COMPLETED FILTERING v_gc'
+    WRITE(message,*)'COMPLETED FILTERING v_gc'
+    call wrf_debug(1,message)
 
-    WRITE(0,*)'END OF HBFILTER'
+    WRITE(message,*)'END OF HBFILTER'
+    call wrf_debug(1,message)
 !
     do l=start_z,end_z
      do j=jts,min(jte,jde-1)
@@ -4976,7 +5015,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
 ! JIAN-WEN BAO. THIS ALGORITHM IS BASED ON INVERSE BALANCE EQUATION
 !
 
-      WRITE(0,*)'CALLING TCBOGUS'
+      WRITE(message,*)'CALLING TCBOGUS'
+      call wrf_debug(1,message)
 
       allocate(u_temp(ide,jde,end_z));allocate(v_temp(ide,jde,end_z))
       allocate(t_temp(ide,jde,end_z));allocate(ght_temp(ide,jde,end_z))
@@ -5019,17 +5059,28 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
        enddo
      enddo
 
-      WRITE(0,*)'--------------- new ght_gc --------------------------'
-      WRITE(0,*)ght_gc(100,100,:)
-      WRITE(0,*)'--------------- new p_gc --------------------------'
-      WRITE(0,*)p_gc(100,100,:)
-      WRITE(0,*)'--------------- new rh_gc ---------------------------'
-      WRITE(0,*)rh_gc(100,100,:)
-      WRITE(0,*)'--------------- new t_gc --------------------------'
-      WRITE(0,*)t_gc(100,100,:)
-      WRITE(0,*)'---------------------------------------------------'
+      WRITE(message,*)'--------------- new ght_gc --------------------------'
+!      call wrf_debug(1,message)
+!      WRITE(message,*)ght_gc(100,100,:)
+!      call wrf_debug(1,message)
+      WRITE(message,*)'--------------- new p_gc --------------------------'
+!      call wrf_debug(1,message)
+!      WRITE(message,*)p_gc(100,100,:)
+!      call wrf_debug(1,message)
+      WRITE(message,*)'--------------- new rh_gc ---------------------------'
+!      call wrf_debug(1,message)
+!      WRITE(message,*)rh_gc(100,100,:)
+!      call wrf_debug(1,message)
+      WRITE(message,*)'--------------- new t_gc --------------------------'
+!      call wrf_debug(1,message)
+!      WRITE(message,*)t_gc(100,100,:)
+!      call wrf_debug(1,message)
+!      WRITE(message,*)'---------------------------------------------------'
+!      call wrf_debug(1,message)
 
       WRITE(0,*)'tcbogus completed'
+      WRITE(message,*)'tcbogus completed'
+      call wrf_debug(1,message)
 
    ENDIF  ! for internal_time_loop .eq. 1
 
@@ -5215,6 +5266,7 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
       REAL, DIMENSION(IMS:IME,JMS:JME)                  :: betkc
       REAL, DIMENSION(IMS:IME,JMS:JME,start_z:end_z1-1) :: uc,vc,tc,rqc,ppc
       REAL, DIMENSION(IMS:IME,JMS:JME,start_z:end_z1-1) :: tvbc,ghc,rhc
+      character*255 message
 !
       common /comp1/tk(kmx),t6(kmx1),rh(kmx),rm,vm0,ts
       km=end_z1-1
@@ -5292,7 +5344,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
       call result(uc,vc,tc,rqc,psc,fc,ide,jde,dsc,tyc,txc, &
               up1,up,km,end_z1,beta)
 
-      write(0,*)'out of result'
+      write(message,*)'out of result'
+      call wrf_debug(1,message)
 !
       itime=0.0
 !
@@ -5323,7 +5376,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
 !     write(10,*) poz(k)
       enddo
 !
-      write(0,*)'before interpolation'
+      write(message,*)'before interpolation'
+      call wrf_debug(1,message)
       call interpz(uc,vc,tc,ppc,rqc,ide,jde,km)
 !
       if(vm0.gt.1.0) then
@@ -5366,7 +5420,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
        enddo
       enddo
 !
-      write(0,*)'---------- test write out -----------'
+      write(message,*)'---------- test write out -----------'
+      call wrf_debug(1,message)
       do k=1,km
        do i=1,jde
         do j=1,ide
@@ -5375,8 +5430,14 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
          tw(j,i,k)=tc(j,i,k)
          ghw(j,i,k)=ghc(j,i,k)
          rhw(j,i,k)=rhc(j,i,k)
-         if(i .eq. 10 .and. j .eq. 10)write(0,*)k,uw(j,i,k),vw(j,i,k),ghw(j,i,k),tw(j,i,k)
-         if(i .eq. 100 .and. j .eq. 98)write(0,*)k,uw(j,i,k),vw(j,i,k),ghw(j,i,k),tw(j,i,k)
+         if(i .eq. 10 .and. j .eq. 10) then 
+            write(message,*)k,uw(j,i,k),vw(j,i,k),ghw(j,i,k),tw(j,i,k)
+            call wrf_debug(1,message)
+         endif
+         if(i .eq. 100 .and. j .eq. 98) then
+            write(message,*)k,uw(j,i,k),vw(j,i,k),ghw(j,i,k),tw(j,i,k)
+            call wrf_debug(1,message)
+         endif
         enddo
        enddo
       enddo
@@ -5403,6 +5464,7 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
       real ux(lq,lp),vy(lq,lp),tt1(lq,lp,km),gg1(lq,lp,end_z1),f(lp)
       real up1(end_z1),up(km)
       real tk,t6,rh,rm,vm0,ts
+      character*255 message
       common /comp1/tk(kmx),t6(kmx1),rh(kmx),rm,vm0,ts
 !
       ds2=ds*ds
@@ -5416,7 +5478,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
 !
       uee=up1(end_z1)
 
-      WRITE(0,*)'CALLING VORTEX 1'
+      WRITE(message,*)'CALLING VORTEX 1'
+      call wrf_debug(1,message)
 
       call vortex1(ux,vy,1.0,ds,lq,lp,ty0,tx0,uee)
       do 1 i=2,lp-1
@@ -5444,7 +5507,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
       sgg=sig(k)
       uee=up1(k)
 
-      WRITE(0,*)'CALLING VORTEX 2',k
+      WRITE(message,*)'CALLING VORTEX 2',k
+      call wrf_debug(1,message)
 
       call vortex1(ux,vy,sgg,ds,lq,lp,ty0,tx0,uee)
       do 3 i=2,lp-1
@@ -5535,7 +5599,8 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
       sgg=sig1(k)
       uee=up(k)
 
-      WRITE(0,*)'CALLING VORTEX 3',k
+      WRITE(message,*)'CALLING VORTEX 3',k
+      call wrf_debug(1,message)
 
       call vortex1(ux,vy,sgg,ds,lq,lp,ty0,tx0,uee)
       do 20 i=1,lp
@@ -5554,13 +5619,15 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
 !----------------------------------------------------------------
       implicit none
       include 'BALANCE_PARS.F'
+      character*255 message
       integer i,j,lq,lp
       real ahem,pi,sgt,sgb,sgg,ds,ty0,tx0,uee,vm,b,r0,rr,rd,ty,tx
       real ux(lq,lp),vy(lq,lp)
       real tk,t6,rh,rm,vm0,ts,vt
       common /comp1/tk(kmx),t6(kmx1),rh(kmx),rm,vm0,ts
 !
-      WRITE(0,*)'INSIDE VORTEX'
+      WRITE(message,*)'INSIDE VORTEX'
+      call wrf_debug(1,message)
       ahem=1.0
       if(fi0.lt.0.0) ahem=-1.0
       pi=2.0*atan(1.0)
@@ -5639,6 +5706,10 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
       do 20 i=2,lp-1
       do 20 j=2,lq-1
   20  tem(j,i)=wk(j,i)
+!
+      !Gopal's doing on June 17th, 2015. The line below was erroneously removed from the code.
+      if(anorm.gt.err) goto 2
+      write(6,*) nt,anorm,err
 !
       do i=1,lp
       do j=1,lq
@@ -5809,14 +5880,15 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
    8  continue
 !
       do 15 k=1,km
-!
+! Bug fix for idealized simulation by Lin Zhu. forc2. The bug is associated with
+! thermal wind relationship in sheared environment.
       do 9 i=1,lp
       forc1=tt(i,k)*alpy(i)
       if(k.eq.1) then
-      forc2=f(i)*(up1(3)-up1(2))/(rgas*log(sig(3)/sig(2)))
+      forc2= - f(i)*(up1(3)-up1(2))/(rgas*log(sig(3)/sig(2)))
       forc3=(t6(2)-tk(1))*alpy(i)/log(sig(2)/sig1(1))
       else
-      forc2=f(i)*(up1(k+1)-up1(k))/(rgas*log(sig(k+1)/sig(k)))
+      forc2= - f(i)*(up1(3)-up1(2))/(rgas*log(sig(3)/sig(2)))
       forc3=(t6(k+1)-t6(k))*alpy(i)/log(sig(k+1)/sig(k))
       endif
       forc(i)=forc1+forc2+forc3
@@ -5977,7 +6049,7 @@ INTEGER, INTENT(IN):: ids,ide,jds,jde,kds,kde, &
 
 
 
-#ifdef HWRF
+#if ( HWRF == 1 )
 ! compute earth lat-lons for before interpolations. This is gopal's doing for ocean coupling
 !============================================================================================
 
@@ -6136,6 +6208,7 @@ END SUBROUTINE EARTH_LATLON_hwrf
  LOGICAL  FLIP
  REAL,    DIMENSION(IMS:IME,JMS:JME)  :: HBWGT1,HBWGT2,HBWGT3,HBWGT4
  INTEGER, DIMENSION(IMS:IME,JMS:JME)  :: IIH,JJH
+ character*255 message
 !-------------------------------------------------------------------------------
 
   IMT=2*P_IDE-2             ! parent i dIMEnsions
@@ -6578,9 +6651,12 @@ END SUBROUTINE EARTH_LATLON_hwrf
 
 
           IF((NBWGT(1,I,J)+NBWGT(2,I,J)+NBWGT(3,I,J)+NBWGT(4,I,J)) .NE. 1)THEN
-            WRITE(0,*)'------------------------------------------------------------------------'
-            WRITE(0,*)'FATAL: SOMETHING IS WRONG WITH THE WEIGHTS IN module_initialize_real.F'
-            WRITE(0,*)'------------------------------------------------------------------------'
+            WRITE(message,*)'------------------------------------------------------------------------'
+            call wrf_debug(1,message)
+            WRITE(message,*)'FATAL: SOMETHING IS WRONG WITH THE WEIGHTS IN module_initialize_real.F'
+            call wrf_debug(1,message)
+            WRITE(message,*)'------------------------------------------------------------------------'
+            call wrf_debug(1,message)
             STOP
           ENDIF
 

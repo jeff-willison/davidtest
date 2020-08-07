@@ -40,7 +40,11 @@ module wrf_data
   integer                , parameter      :: WARN             = 1
   integer                , parameter      :: WrfDataHandleMax = 99
   integer                , parameter      :: MaxDims          = 2000 ! = NF_MAX_VARS
+#if(WRF_CHEM == 1)
+  integer                , parameter      :: MaxVars          = 10000
+#else
   integer                , parameter      :: MaxVars          = 3000
+#endif
   integer                , parameter      :: MaxTimes         = 10000
   integer                , parameter      :: DateStrLen       = 19
   integer                , parameter      :: VarNameLen       = 31
@@ -88,6 +92,8 @@ module wrf_data
 ! to .FALSE. when the first field is read or written.  
     logical                               :: first_operation
     logical                               :: R4OnOutput
+    logical                               :: nofill
+    logical                               :: use_netcdf_classic
   end type wrf_data_handle
   type(wrf_data_handle),target            :: WrfDataHandles(WrfDataHandleMax)
 end module wrf_data
@@ -198,6 +204,7 @@ subroutine allocHandle(DataHandle,DH,Comm,Status)
   DH%Write     =.false.
   DH%first_operation  = .TRUE.
   DH%R4OnOutput = .false.
+  DH%nofill = .false.
   Status = WRF_NO_ERR
 end subroutine allocHandle
 
@@ -441,6 +448,28 @@ subroutine GetDim(MemoryOrder,NDim,Status)
   return
 end subroutine GetDim
 
+#ifdef USE_NETCDF4_FEATURES
+subroutine set_chunking(MemoryOrder,need_chunking)
+  include 'wrf_status_codes.h'
+  character*(*) ,intent(in)  :: MemoryOrder
+  logical       ,intent(out) :: need_chunking
+  character*3                :: MemOrd
+
+  call LowerCase(MemoryOrder,MemOrd)
+  if(len(MemOrd) >= 2) then
+     select case (MemOrd)
+        case ('xyz','xzy','yxz','yzx','zxy','zyx','xsz','xez','ysz','yez')
+             need_chunking = .true.
+        case ('xy','yx')
+             need_chunking = .true.
+        case default
+             need_chunking = .false.
+             return
+      end select
+  endif
+end subroutine set_chunking
+#endif
+
 subroutine GetIndices(NDim,Start,End,i1,i2,j1,j2,k1,k2)
   integer              ,intent(in)  :: NDim
   integer ,dimension(*),intent(in)  :: Start,End
@@ -678,8 +707,8 @@ subroutine FieldIO(IO,DataHandle,DateStr,Length,MemoryOrder &
     return
   endif
   call GetDim(MemoryOrder,NDim,Status)
-VStart(:) = 1
-VCount(:) = 1
+  VStart(:) = 1
+  VCount(:) = 1
   VStart(1:NDim) = 1
   VCount(1:NDim) = Length(1:NDim)
   VStart(NDim+1) = TimeIndex
@@ -872,6 +901,22 @@ LOGICAL FUNCTION ncd_is_first_operation( DataHandle )
     RETURN
 END FUNCTION ncd_is_first_operation
 
+subroutine upgrade_filename(FileName)
+  implicit none
+
+  character*(*), intent(inout) :: FileName
+  integer :: i
+
+  do i = 1, len(trim(FileName))
+     if(FileName(i:i) == '-') then
+        FileName(i:i) = '_'
+     else if(FileName(i:i) == ':') then
+         FileName(i:i) = '_'
+     endif
+  enddo
+
+end subroutine upgrade_filename
+
 end module ext_ncd_support_routines
 
 subroutine TransposeToR4(IO,MemoryOrder,di, Field,l1,l2,m1,m2,n1,n2 &
@@ -986,7 +1031,7 @@ subroutine ext_ncd_open_for_read_begin( FileName, Comm, IOComm, SysDepInfo, Data
   implicit none
   include 'wrf_status_codes.h'
   include 'netcdf.inc'
-  character*(*)         ,intent(IN)      :: FileName
+  character*(*)         ,intent(INOUT)   :: FileName
   integer               ,intent(IN)      :: Comm
   integer               ,intent(IN)      :: IOComm
   character*(*)         ,intent(in)      :: SysDepInfo
@@ -1007,6 +1052,12 @@ subroutine ext_ncd_open_for_read_begin( FileName, Comm, IOComm, SysDepInfo, Data
   integer                                :: i
   character (NF_MAX_NAME)                :: Name
 
+#ifdef USE_NETCDF4_FEATURES
+  integer                                :: open_mode
+#endif
+
+  !call upgrade_filename(FileName)
+
   if(WrfIOnotInitialized) then
     Status = WRF_IO_NOT_INITIALIZED 
     write(msg,*) 'ext_ncd_ioinit was not called ',__FILE__,', line', __LINE__
@@ -1019,6 +1070,7 @@ subroutine ext_ncd_open_for_read_begin( FileName, Comm, IOComm, SysDepInfo, Data
     call wrf_debug ( WARN , TRIM(msg))
     return
   endif
+
   stat = NF_OPEN(FileName, NF_NOWRITE, DH%NCID)
   call netcdf_err(stat,Status)
   if(Status /= WRF_NO_ERR) then
@@ -1105,7 +1157,7 @@ subroutine ext_ncd_open_for_read_begin( FileName, Comm, IOComm, SysDepInfo, Data
   DH%NumVars         = NumVars
   DH%NumberTimes     = VLen(2)
   DH%FileStatus      = WRF_FILE_OPENED_NOT_COMMITTED
-  DH%FileName        = FileName
+  DH%FileName        = trim(FileName)
   DH%CurrentVariable = 0
   DH%CurrentTime     = 0
   DH%TimesVarID      = VarID
@@ -1119,7 +1171,7 @@ subroutine ext_ncd_open_for_update( FileName, Comm, IOComm, SysDepInfo, DataHand
   implicit none
   include 'wrf_status_codes.h'
   include 'netcdf.inc'
-  character*(*)         ,intent(IN)      :: FileName
+  character*(*)         ,intent(INOUT)   :: FileName
   integer               ,intent(IN)      :: Comm
   integer               ,intent(IN)      :: IOComm
   character*(*)         ,intent(in)      :: SysDepInfo
@@ -1139,6 +1191,12 @@ subroutine ext_ncd_open_for_update( FileName, Comm, IOComm, SysDepInfo, DataHand
   integer                                :: NumVars
   integer                                :: i
   character (NF_MAX_NAME)                :: Name
+
+#ifdef USE_NETCDF4_FEATURES
+  integer                                :: open_mode
+#endif
+
+  !call upgrade_filename(FileName)
 
   if(WrfIOnotInitialized) then
     Status = WRF_IO_NOT_INITIALIZED 
@@ -1238,7 +1296,7 @@ subroutine ext_ncd_open_for_update( FileName, Comm, IOComm, SysDepInfo, DataHand
   DH%NumVars         = NumVars
   DH%NumberTimes     = VLen(2)
   DH%FileStatus      = WRF_FILE_OPENED_FOR_UPDATE
-  DH%FileName        = FileName
+  DH%FileName        = trim(FileName)
   DH%CurrentVariable = 0
   DH%CurrentTime     = 0
   DH%TimesVarID      = VarID
@@ -1253,7 +1311,7 @@ SUBROUTINE ext_ncd_open_for_write_begin(FileName,Comm,IOComm,SysDepInfo,DataHand
   implicit none
   include 'wrf_status_codes.h'
   include 'netcdf.inc'
-  character*(*)        ,intent(in)  :: FileName
+  character*(*)        ,intent(inout) :: FileName
   integer              ,intent(in)  :: Comm
   integer              ,intent(in)  :: IOComm
   character*(*)        ,intent(in)  :: SysDepInfo
@@ -1264,6 +1322,15 @@ SUBROUTINE ext_ncd_open_for_write_begin(FileName,Comm,IOComm,SysDepInfo,DataHand
   integer                           :: stat
   character (7)                     :: Buffer
   integer                           :: VDimIDs(2)
+
+#ifdef USE_NETCDF4_FEATURES
+  integer                           :: create_mode
+  integer, parameter                :: cache_size = 32, &
+                                       cache_nelem = 37, &
+                                       cache_preemption = 100
+#endif
+
+  !call upgrade_filename(FileName)
 
   if(WrfIOnotInitialized) then
     Status = WRF_IO_NOT_INITIALIZED 
@@ -1279,10 +1346,27 @@ SUBROUTINE ext_ncd_open_for_write_begin(FileName,Comm,IOComm,SysDepInfo,DataHand
   endif
   DH%TimeIndex = 0
   DH%Times     = ZeroDate
+#ifdef USE_NETCDF4_FEATURES
+! create_mode = IOR(nf_netcdf4, nf_classic_model)
+  if ( DH%use_netcdf_classic ) then
+  write(msg,*) 'output will be in classic NetCDF format'
+  call wrf_debug ( WARN , TRIM(msg))
 #ifdef WRFIO_NCD_LARGE_FILE_SUPPORT
   stat = NF_CREATE(FileName, IOR(NF_CLOBBER,NF_64BIT_OFFSET), DH%NCID)
 #else
   stat = NF_CREATE(FileName, NF_CLOBBER, DH%NCID)
+#endif
+  else
+  create_mode = nf_netcdf4
+  stat = NF_CREATE(FileName, create_mode, DH%NCID)
+  stat = NF_SET_CHUNK_CACHE(cache_size, cache_nelem, cache_preemption)
+  endif
+#else
+#ifdef WRFIO_NCD_LARGE_FILE_SUPPORT
+  stat = NF_CREATE(FileName, IOR(NF_CLOBBER,NF_64BIT_OFFSET), DH%NCID)
+#else
+  stat = NF_CREATE(FileName, NF_CLOBBER, DH%NCID)
+#endif
 #endif
   call netcdf_err(stat,Status)
   if(Status /= WRF_NO_ERR) then
@@ -1291,7 +1375,7 @@ SUBROUTINE ext_ncd_open_for_write_begin(FileName,Comm,IOComm,SysDepInfo,DataHand
     return
   endif
   DH%FileStatus  = WRF_FILE_OPENED_NOT_COMMITTED
-  DH%FileName    = FileName
+  DH%FileName    = trim(FileName)
   stat = NF_DEF_DIM(DH%NCID,DH%DimUnlimName,NF_UNLIMITED,DH%DimUnlimID)
   call netcdf_err(stat,Status)
   if(Status /= WRF_NO_ERR) then
@@ -1328,6 +1412,10 @@ SUBROUTINE ext_ncd_open_for_write_begin(FileName,Comm,IOComm,SysDepInfo,DataHand
   if (index(SysDepInfo,'REAL_OUTPUT_SIZE=4') /= 0) then
      DH%R4OnOutput = .true.
   end if
+!toggle on nofill mode
+  if (index(SysDepInfo,'NOFILL=.TRUE.') /= 0) then
+     DH%nofill = .true.
+  end if
 
   return
 end subroutine ext_ncd_open_for_write_begin
@@ -1363,6 +1451,7 @@ SUBROUTINE ext_ncd_open_for_write_commit(DataHandle, Status)
   type(wrf_data_handle),pointer     :: DH
   integer                           :: i
   integer                           :: stat
+  integer                           :: oldmode  ! for nf_set_fill, not used
 
   if(WrfIOnotInitialized) then
     Status = WRF_IO_NOT_INITIALIZED 
@@ -1375,6 +1464,16 @@ SUBROUTINE ext_ncd_open_for_write_commit(DataHandle, Status)
     write(msg,*) 'Warning Status = ',Status,' in ext_ncd_open_for_write_commit ',__FILE__,', line', __LINE__
     call wrf_debug ( WARN , TRIM(msg)) 
     return
+  endif
+  if ( DH%nofill ) then
+    Status = NF_SET_FILL(DH%NCID,NF_NOFILL, oldmode )
+    if(Status /= WRF_NO_ERR) then
+      write(msg,*) 'Warning Status = ',Status,' from NF_SET_FILL ',__FILE__,', line', __LINE__
+      call wrf_debug ( WARN , TRIM(msg)) 
+      return
+    endif
+    write(msg,*) 'Information: NOFILL being set for writing to ',TRIM(DH%FileName)
+    call wrf_debug ( WARN , TRIM(msg)) 
   endif
   stat = NF_ENDDEF(DH%NCID)
   call netcdf_err(stat,Status)
@@ -1512,6 +1611,8 @@ subroutine ext_ncd_redef( DataHandle, Status)
     call wrf_debug ( WARN , TRIM(msg))
   elseif(DH%FileStatus == WRF_FILE_OPENED_FOR_WRITE) then
     continue
+  elseif(DH%FileStatus == WRF_FILE_OPENED_FOR_UPDATE) then
+    continue
   elseif(DH%FileStatus == WRF_FILE_OPENED_FOR_READ) then
     Status = WRF_WARN_FILE_OPEN_FOR_READ
     write(msg,*) 'Warning FILE OPEN FOR READ in ',__FILE__,', line', __LINE__
@@ -1593,6 +1694,11 @@ subroutine ext_ncd_ioinit(SysDepInfo, Status)
   WrfDataHandles(1:WrfDataHandleMax)%TimesName    = 'Times'
   WrfDataHandles(1:WrfDataHandleMax)%DimUnlimName = 'Time'
   WrfDataHandles(1:WrfDataHandleMax)%FileStatus   = WRF_FILE_NOT_OPENED
+  if(trim(SysDepInfo) == "use_netcdf_classic" ) then
+     WrfDataHandles(1:WrfDataHandleMax)%use_netcdf_classic = .true.
+  else
+     WrfDataHandles(1:WrfDataHandleMax)%use_netcdf_classic = .false.
+  endif
   Status = WRF_NO_ERR
   return
 end subroutine ext_ncd_ioinit
@@ -2312,7 +2418,6 @@ subroutine ext_ncd_get_dom_td_char(DataHandle,Element,DateStr,Data,Status)
   return
 end subroutine ext_ncd_get_dom_td_char
 
-
 subroutine ext_ncd_write_field(DataHandle,DateStr,Var,Field,FieldTypeIn,  &
   Comm, IOComm, DomainDesc, MemoryOrdIn, Stagger,  DimNames,              &
   DomainStart,DomainEnd,MemoryStart,MemoryEnd,PatchStart,PatchEnd,Status)
@@ -2361,6 +2466,14 @@ subroutine ext_ncd_write_field(DataHandle,DateStr,Var,Field,FieldTypeIn,  &
   character (80)                               :: NullName
   logical                                      :: NotFound
 
+#ifdef USE_NETCDF4_FEATURES
+  integer, parameter                           :: cache_size = 32000000
+  integer,dimension(NVarDims)                  :: chunks
+  logical                                      :: need_chunking
+  integer                                      :: compression_level
+  integer                                      :: block_size
+#endif
+
   MemoryOrder = trim(adjustl(MemoryOrdIn))
   NullName=char(0)
   call GetDim(MemoryOrder,NDim,Status)
@@ -2369,6 +2482,7 @@ subroutine ext_ncd_write_field(DataHandle,DateStr,Var,Field,FieldTypeIn,  &
     call wrf_debug ( WARN , TRIM(msg))
     return
   endif
+
   call DateCheck(DateStr,Status)
   if(Status /= WRF_NO_ERR) then
     write(msg,*) 'Warning DATE STRING ERROR |',DateStr,'| in ',__FILE__,', line', __LINE__ 
@@ -2383,6 +2497,15 @@ subroutine ext_ncd_write_field(DataHandle,DateStr,Var,Field,FieldTypeIn,  &
     return
   endif
   NCID = DH%NCID
+
+#ifdef USE_NETCDF4_FEATURES
+if ( .not. DH%use_netcdf_classic ) then
+  call set_chunking(MemoryOrder,need_chunking)
+  compression_level = 2
+else
+  need_chunking = .false.
+endif
+#endif
 
   if ( DH%R4OnOutput .and. FieldTypeIn == WRF_DOUBLE ) then
      FieldType = WRF_REAL
@@ -2518,6 +2641,54 @@ subroutine ext_ncd_write_field(DataHandle,DateStr,Var,Field,FieldTypeIn,  &
       call wrf_debug ( WARN , TRIM(msg))
       return
     endif
+
+#ifdef USE_NETCDF4_FEATURES
+  if(need_chunking) then
+     chunks(1:NDim) = Length(1:NDim)
+     chunks(NDim+1) = 1
+     chunks(1) = (Length(1) + 1)/2
+     chunks(2) = (Length(2) + 1)/2
+
+     block_size = 1
+     do i = 1, NDim
+        block_size = block_size * chunks(i)
+     end do
+
+     do while (block_size > cache_size)
+        chunks(1) = (chunks(1) + 1)/2
+        chunks(2) = (chunks(2) + 1)/2
+
+        block_size = 1
+        do i = 1, NDim
+           block_size = block_size * chunks(i)
+        end do
+     end do
+
+!    write(unit=0, fmt='(2x, 3a,i6)')  'file: ', __FILE__, ', line: ', __LINE__
+!    write(unit=0, fmt='(2x, 3a)') TRIM(VarName),':'
+!    write(unit=0, fmt='(10x, 2(a,i6))') 'length 1 = ', Length(1), ', chunk 1 = ', chunks(1)
+!    write(unit=0, fmt='(10x, 2(a,i6))') 'length 2 = ', Length(2), ', chunk 2 = ', chunks(2)
+!    write(unit=0, fmt='(10x, 2(a,i6))') 'length NDim+1 = ', Length(NDim+1), ', chunk NDim+1 = ', chunks(NDim+1)
+!    write(unit=0, fmt='(10x, a,i6)')    'compression_level = ', compression_level
+
+     stat = NF_DEF_VAR_CHUNKING(NCID, VarID, NF_CHUNKED, chunks(1:NDim+1))
+     call netcdf_err(stat,Status)
+     if(Status /= WRF_NO_ERR) then
+       write(msg,*) 'ext_ncd_write_field: NetCDF def chunking error for ',TRIM(VarName),' in ',__FILE__,', line', __LINE__
+       call wrf_debug ( WARN , TRIM(msg))
+       return
+     endif
+
+      stat = NF_DEF_VAR_DEFLATE(NCID, VarID, 1, 1, compression_level)
+      call netcdf_err(stat,Status)
+      if(Status /= WRF_NO_ERR) then
+         write(msg,*) 'ext_ncd_write_field: NetCDF def compression  error for ',TRIM(VarName),' in ',__FILE__,', line', __LINE__
+         call wrf_debug ( WARN , TRIM(msg))
+         return
+      endif
+  endif
+#endif
+
     DH%VarIDs(NVar) = VarID
     stat = NF_PUT_ATT_INT(NCID,VarID,'FieldType',NF_INT,1,FieldType)
     call netcdf_err(stat,Status)
@@ -2871,17 +3042,19 @@ subroutine ext_ncd_inquire_opened( DataHandle, FileName , FileStatus, Status )
   implicit none
   include 'wrf_status_codes.h'
   integer               ,intent(in)     :: DataHandle
-  character*(*)         ,intent(in)     :: FileName
+  character*(*)         ,intent(inout)  :: FileName
   integer               ,intent(out)    :: FileStatus
   integer               ,intent(out)    :: Status
   type(wrf_data_handle) ,pointer        :: DH
+
+  !call upgrade_filename(FileName)
 
   call GetDH(DataHandle,DH,Status)
   if(Status /= WRF_NO_ERR) then
     FileStatus = WRF_FILE_NOT_OPENED
     return
   endif
-  if(FileName /= DH%FileName) then
+  if(trim(FileName) /= trim(DH%FileName)) then
     FileStatus = WRF_FILE_NOT_OPENED
   else
     FileStatus = DH%FileStatus
@@ -2907,7 +3080,7 @@ subroutine ext_ncd_inquire_filename( Datahandle, FileName,  FileStatus, Status )
     call wrf_debug ( WARN , TRIM(msg))
     return
   endif
-  FileName = DH%FileName
+  FileName = trim(DH%FileName)
   FileStatus = DH%FileStatus
   Status = WRF_NO_ERR
   return

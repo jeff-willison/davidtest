@@ -1,6 +1,6 @@
 MODULE module_sf_noahlsm_glacial_only
   USE module_model_constants
-  USE module_sf_noahlsm, ONLY : RD, SIGMA, CPH2O, CPICE, LSUBF, EMISSI_S, ERR_MESSAGE, ROSR12
+  USE module_sf_noahlsm, ONLY : RD, SIGMA, CPH2O, CPICE, LSUBF, EMISSI_S, ROSR12
   USE module_sf_noahlsm, ONLY : LVCOEF_DATA
 
   PRIVATE :: ALCALC
@@ -15,6 +15,7 @@ MODULE module_sf_noahlsm_glacial_only
   PRIVATE :: SNOW_NEW
 
   integer, private :: iloc, jloc
+!$omp threadprivate(iloc, jloc)
 
 CONTAINS
 
@@ -358,7 +359,8 @@ CONTAINS
          &       SFCPRS,RCH,RR,SNEQV,SNDENS,SNOWH,ZSOIL,TBOT,   &
          &       SNOMLT,DEW,FLX1,FLX2,FLX3,ESNOW,EMISSI,RIBB)
 
-    ETA_KINEMATIC =  ESNOW
+!   ETA_KINEMATIC =  ESNOW
+    ETA_KINEMATIC =  ETP
 
 ! ----------------------------------------------------------------------
 ! Effective mixing ratio at grnd level (skin)

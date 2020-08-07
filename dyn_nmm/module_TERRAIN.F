@@ -75,7 +75,7 @@ contains
 
     type(nmm_terrain), pointer :: tr
     integer, intent(in) :: io_form, input_type
-    integer, parameter :: IO_BIN=1, IO_NET=2
+    integer, parameter :: IO_BIN=1, IO_NET=2, IO_PNC=11
     CHARACTER(LEN=6)                  :: nestpath
     character(len=128)                :: input_fname
     integer :: comm_1,comm_2, handle,istatus
@@ -141,7 +141,8 @@ contains
        if (io_form == IO_BIN) write(input_fname,"(A,I2.2,A)") "geo_nmm_nest.l",level,".int"
 #endif
 #ifdef NETCDF
-       if (io_form == IO_NET) write(input_fname,"(A,I2.2,A)") "geo_nmm_nest.l",level,".nc"
+       if (io_form == IO_PNC) call wrf_message("WARNING: module_TERRAIN.F: pNetCDF specified, but using serial NetCDF to read geo_nmm_nest file")
+       if (io_form == IO_NET .OR. io_form == IO_PNC) write(input_fname,"(A,I2.2,A)") "geo_nmm_nest.l",level,".nc"
 #endif
 
        comm_1 = 1
@@ -152,10 +153,10 @@ contains
             call ext_int_open_for_read(trim(input_fname), comm_1, comm_2, 'sysdep info', handle, istatus)
 #endif
 #ifdef NETCDF
-       if (io_form == IO_NET) &
+       if (io_form == IO_NET .OR. io_form == IO_PNC ) &
             call ext_ncd_open_for_read(trim(input_fname), comm_1, comm_2, 'sysdep info', handle, istatus)
 #endif
-       if (istatus /= 0) CALL wrf_error_fatal('NEST_TERRAIN error after ext_XXX_open_for_read '//trim(input_fname))
+!idealized KWON       if (istatus /= 0) CALL wrf_error_fatal('NEST_TERRAIN error after ext_XXX_open_for_read '//trim(input_fname))
 
 
        read_loop: do n=1,24
@@ -169,18 +170,9 @@ contains
                call ext_int_get_var_info(handle, cname, ndim, memorder, stagger, domain_start, domain_end, wrftype, istatus)
 #endif
 #ifdef NETCDF
-          if (io_form == IO_NET) &
+          if (io_form == IO_NET .OR. io_form == IO_PNC ) &
                call ext_ncd_get_var_info(handle, cname, ndim, memorder, stagger, domain_start, domain_end, wrftype, istatus)
 #endif
-          print *, "cname=", cname
-          print *, "istatus=", istatus
-          print *, "ndim=", ndim
-          print *, "memorder=", memorder
-          print *, "stagger=", stagger
-          print *, "domain_start=", domain_start
-          print *, "domain_end=", domain_end
-          print *, "wrftype=", wrftype
-
 
           if (allocated(real_domain)) deallocate(real_domain)
           allocate(real_domain(domain_start(1):domain_end(1), domain_start(2):domain_end(2), domain_start(3):domain_end(3)))
@@ -194,14 +186,13 @@ contains
           end if
 #endif
 #ifdef NETCDF
-          if (io_form == IO_NET) then
+          if (io_form == IO_NET .OR. io_form == IO_PNC ) then
              call ext_ncd_read_field(handle, '0000-00-00_00:00:00', cname, real_domain, wrftype, &
                   1, 1, 0, memorder, stagger, &
                   dimnames, domain_start, domain_end, domain_start, domain_end, &
                   domain_start, domain_end, istatus)
           end if
 #endif
-          print *, "istatus=", istatus
 
           write(message,'("domain nx=",I0," ny=",I0)') domain_end(1),domain_end(2)
           tr%nx = domain_end(1)
@@ -259,7 +250,7 @@ contains
        end if
 #endif
 #ifdef NETCDF
-       if (io_form == IO_NET) then
+       if (io_form == IO_NET .OR. io_form == IO_PNC ) then
           call ext_ncd_ioclose(handle, istatus)
        end if
 #endif

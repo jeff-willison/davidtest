@@ -27,7 +27,7 @@ MODULE module_initialize_ideal
 #ifdef DM_PARALLEL
    USE module_dm
 #endif
-   USE module_fr_sfire_util, ONLY: continue_at_boundary,crash,read_array_2d_real, &
+   USE module_fr_fire_util, ONLY: continue_at_boundary,crash,read_array_2d_real, &
      read_array_2d_integer,interpolate_2d,set_ideal_coord 
 
 CONTAINS
@@ -55,7 +55,7 @@ CONTAINS
 
      CALL init_domain_rk( grid &
 !
-#include <actual_new_args.inc>
+#include "actual_new_args.inc"
 !
                         )
 
@@ -65,7 +65,7 @@ CONTAINS
 
    SUBROUTINE init_domain_rk ( grid &
 !
-# include <dummy_new_args.inc>
+# include "dummy_new_args.inc"
 !
 )
    IMPLICIT NONE
@@ -73,7 +73,7 @@ CONTAINS
    !  Input data.
    TYPE (domain), POINTER :: grid
 
-# include <dummy_new_decl.inc>
+# include "dummy_new_decl.inc"
 
    TYPE (grid_config_rec_type)              :: config_flags
 
@@ -730,7 +730,7 @@ write(6,*) '*************************************'
 
     grid%ph_1(i,1,j) = 0.
     DO k  = 2,kte
-      grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (1./grid%rdnw(k-1))*(       &
+      grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (grid%dnw(k-1))*(       &
                    (grid%mub(i,j)+grid%mu_1(i,j))*grid%al(i,k-1,j)+ &
                     grid%mu_1(i,j)*grid%alb(i,k-1,j)  )
                                                    
@@ -791,7 +791,7 @@ write(6,*) '*************************************'
 !  rebalance hydrostatically
 
       DO k  = 2,kte
-        grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (1./grid%rdnw(k-1))*(       &
+        grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (grid%dnw(k-1))*(       &
                      (grid%mub(i,j)+grid%mu_1(i,j))*grid%al(i,k-1,j)+ &
                       grid%mu_1(i,j)*grid%alb(i,k-1,j)  )
                                                    

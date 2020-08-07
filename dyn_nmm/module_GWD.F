@@ -136,12 +136,16 @@
         ENDDO    !-- I
       ENDDO      !-- J
       IF (.NOT.RESTRT) THEN
-!-- Convert from radians to degrees for WRF input files only
-        DO J=JTS,JTE
-          DO I=ITS,ITE
-            HANGL(I,J)=DTR*HANGL(I,J)  !-- convert to degrees (+/-90 deg)
-          ENDDO    !-- I
-        ENDDO      !-- J
+!-- Convert from radians to degrees for WRF input files only.
+!   There should have ano further conversion from rad to degree at this
+!   point since HANGL read from wrfinput_d01 already in degree even in
+!   the non restart mode... Chanh
+!
+!        DO J=JTS,JTE
+!          DO I=ITS,ITE
+!            HANGL(I,J)=DTR*HANGL(I,J)  !-- convert to degrees (+/-90 deg)
+!          ENDDO    !-- I
+!        ENDDO      !-- J
       ENDIF
 !dbg
 !dbg dumin=-1.
@@ -182,7 +186,7 @@
      &                     ,HSTDV,HCNVX,HASYW,HASYS,HASYSW,HASYNW       &
      &                     ,HLENW,HLENS,HLENSW,HLENNW                   &
      &                     ,HANGL,HANIS,HSLOP,HZMAX,CROT,SROT           &
-     &                     ,DUDT,DVDT,UGWDsfc,VGWDsfc                   &
+     &                     ,DUDT,DVDT,UGWDsfc,VGWDsfc,XLAND             &      !ADDED XLAND FOR SKIPPING OCEAN POINTS(KWON)
      &                     ,IDS,IDE,JDS,JDE,KDS,KDE                     &
      &                     ,IMS,IME,JMS,JME,KMS,KME                     &
      &                     ,ITS,ITE,JTS,JTE,KTS,KTE )
@@ -247,7 +251,7 @@
      &                                   U,V,T,Q,Z,DP,PINT,PMID,EXNR
       REAL, INTENT(IN), DIMENSION (ims:ime, jms:jme) :: HSTDV,HCNVX     &
      &      ,HASYW,HASYS,HASYSW,HASYNW,HLENW,HLENS,HLENSW,HLENNW,HANGL  &
-     &      ,HANIS,HSLOP,HZMAX,CROT,SROT
+     &      ,HANIS,HSLOP,HZMAX,CROT,SROT, XLAND                           !ADDED XLAND BY KWON
       INTEGER, INTENT(IN), DIMENSION (ims:ime, jms:jme) :: KPBL
       INTEGER, INTENT(IN) :: ids,ide,jds,jde,kds,kde                    &
      &,                      ims,ime,jms,jme,kms,kme                    &
@@ -273,7 +277,7 @@
       REAL(KIND=KIND_PHYS), DIMENSION (IM,KTS:KTE) :: DUDTcol,DVDTcol   &
      &,                    Ucol,Vcol,Tcol,Qcol,DPcol,Pcol,EXNcol,PHIcol
       REAL(KIND=KIND_PHYS), DIMENSION (IM,KTS:KTE+1) :: PINTcol,PHILIcol
-      INTEGER :: I,J,IJ,K,Imid,Jmid
+      INTEGER :: I,J,IJ,K,Imid,Jmid                             
       REAL :: Ugeo,Vgeo,Umod,Vmod, TERRtest,TERRmin
       REAL(KIND=KIND_PHYS) :: TEST
       CHARACTER(LEN=255) :: message
@@ -293,6 +297,7 @@ real :: helvmin,helvmax
 !
 !--------------------------  Executable below  -------------------------
 !
+
 
 lprnt=.false.
 !dbg
@@ -424,6 +429,9 @@ endif   ! if (itime <= 1) then
       DO I=IMS,IME
         UGWDsfc(I,J)=0.
         VGWDsfc(I,J)=0.
+!        IF(ITIMIE.LE.2.OR.ITIME.GE.900) THEN
+!        PRINT *,'KWON: I J HSTDV  IN GWD_DRIVER ',ITIME,I,J,HSTDV(I,J)
+!        ENDIF
       ENDDO
       ENDDO
 !
@@ -432,6 +440,15 @@ endif   ! if (itime <= 1) then
 !dbg       Imid=.5*(ITS+ITE)
 !dbg       Jmid=.5*(JTS+JTE)
 !
+!INITIALIZE THE OUPUT OF GWD_COL  KWON
+          DO K=KTS,KTE
+            DUDTcol(IM,K)=0.
+            DVDTcol(IM,K)=0.
+          ENDDO
+          DUsfc(IM)=0.             !-- U wind stress
+          DVsfc(IM)=0.             !-- V wind stress
+
+
       DO J=JTS,JTE
         DO I=ITS,ITE
           if (kpbl(i,j)<kts .or. kpbl(i,j)>kte) go to 100
@@ -441,6 +458,8 @@ endif   ! if (itime <= 1) then
           TERRtest=HZMAX(I,J)+SIGFAC*HSTDV(I,J)
           TERRmin=Z(I,2,J)-Z(I,1,J)
           IF (TERRtest < TERRmin) GO TO 100
+!  ADDED BY KWON TO SKIP OCEAN POINTS
+          IF (XLAND(I,J).GE.1.5)  GO TO 100
 !
 !-- For debugging:
 !
@@ -1746,7 +1765,7 @@ if (lprnt) print *,'Ktrial,iwklm(i),kreflm(i)=',Ktrial,iwklm(i),kreflm(I)
           DTAUY      = TAUD(I,K) * YN(I)
 ! ---  lm mb (*j*)  changes overwrite GWD
           if ( K .lt. IDXZB(I) .AND. IDXZB(I) .ne. 0 ) then
-            DBIM = DB(I,K) / (1.+DB(I,K)*DELTIM)
+            DBIM = DB(I,K) / (1.+ abs(DB(I,K))*DELTIM)
             A(J,K)  = - DBIM * V1(J,K) + A(J,K)
             B(J,K)  = - DBIM * U1(J,K) + B(J,K)
             DUsfc(J)   = DUsfc(J) - DBIM * V1(J,K) * DEL(J,K)

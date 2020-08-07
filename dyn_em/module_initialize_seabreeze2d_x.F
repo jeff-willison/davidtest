@@ -57,7 +57,7 @@ CONTAINS
 
      CALL init_domain_rk( grid &
 !
-#include <actual_new_args.inc>
+#include "actual_new_args.inc"
 !
                         )
    END SUBROUTINE init_domain
@@ -66,7 +66,7 @@ CONTAINS
 
    SUBROUTINE init_domain_rk ( grid &
 !
-# include <dummy_new_args.inc>
+# include "dummy_new_args.inc"
 !
 )
    IMPLICIT NONE
@@ -74,7 +74,7 @@ CONTAINS
    !  Input data.
    TYPE (domain), POINTER :: grid
 
-# include <dummy_new_decl.inc>
+# include "dummy_new_decl.inc"
 
    TYPE (grid_config_rec_type)              :: config_flags
 
@@ -106,7 +106,7 @@ CONTAINS
    character (len=256) :: mminlu2
    
 #ifdef DM_PARALLEL
-#    include <data_calls.inc>
+#    include "data_calls.inc"
 #endif
 
 
@@ -288,8 +288,10 @@ CONTAINS
 
    IF (stretch_grid) THEN ! exponential stretch for eta (nearly constant dz)
      DO k=1, kde
-      grid%znw(k) = (exp(-(k-1)/float(kde-1)/z_scale) - exp(-1./z_scale))/ &
-                                (1.-exp(-1./z_scale))
+!     grid%znw(k) = (exp(-(k-1)/float(kde-1)/z_scale) - exp(-1./z_scale))/ &
+!                               (1.-exp(-1./z_scale))
+! read eta_levels from namelist (replace with commented code above if not)
+      grid%znw(k) = model_config_rec%eta_levels(k)
      ENDDO
    ELSE
      DO k=1, kde
@@ -444,7 +446,7 @@ CONTAINS
 
     grid%ph_1(i,1,j) = 0.
     DO k  = 2,kte
-      grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (1./grid%rdnw(k-1))*(       &
+      grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (grid%dnw(k-1))*(       &
                    (grid%mub(i,j)+grid%mu_1(i,j))*grid%al(i,k-1,j)+ &
                     grid%mu_1(i,j)*grid%alb(i,k-1,j)  )
                                                    
@@ -501,7 +503,7 @@ CONTAINS
 !  rebalance hydrostatically
 
       DO k  = 2,kte
-        grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (1./grid%rdnw(k-1))*(       &
+        grid%ph_1(i,k,j) = grid%ph_1(i,k-1,j) - (grid%dnw(k-1))*(       &
                      (grid%mub(i,j)+grid%mu_1(i,j))*grid%al(i,k-1,j)+ &
                       grid%mu_1(i,j)*grid%alb(i,k-1,j)  )
                                                    
@@ -594,6 +596,14 @@ CONTAINS
   DO K = kts, kte-1
   DO I = its, min(ide-1,ite)
     grid%h_diabatic(i,k,j) = 0.
+    if(k.eq.kts)tracer(i,k,j,p_tr17_1)=1.
+    if(k.eq.kts.and.grid%xland(i,j).lt.1.5)tracer(i,k,j,p_tr17_2)=1.
+    if(k.eq.kts.and.grid%xland(i,j).gt.1.5)tracer(i,k,j,p_tr17_3)=1.
+    if(k.le.5)tracer(i,k,j,p_tr17_4)=1.
+    if(k.le.5.and.grid%xland(i,j).lt.1.5)tracer(i,k,j,p_tr17_5)=1.
+    if(k.le.5.and.grid%xland(i,j).gt.1.5)tracer(i,k,j,p_tr17_6)=1.
+    if(k.le.10)tracer(i,k,j,p_tr17_7)=1.
+    if(k.le.10.and.k.gt.5)tracer(i,k,j,p_tr17_8)=1.
   ENDDO
   ENDDO
   ENDDO
@@ -667,6 +677,7 @@ CONTAINS
       parameter(n=3000)
       logical debug
       parameter( debug = .true.)
+      character*256 message
 
 ! input sounding data
 
@@ -748,6 +759,11 @@ CONTAINS
             do it=1,10
               pm_input(k) = pm_input(k-1) &
                       - 0.5*dz*(rho_input(k)+rho_input(k-1))*g*qvf1
+              IF(pm_input(k) .LE. 0. )THEN
+                CALL wrf_message("Integrated pressure has gone negative - too cold for chosen height")
+                WRITE(message,*)'k,pm_input(k),h_input(k),th_input(k) = ',k,pm_input(k),h_input(k),th_input(k)
+                CALL wrf_error_fatal ( message )
+              ENDIF
               rho_input(k) = 1./((r/p1000mb)*th_input(k)*qvf*((pm_input(k)/p1000mb)**cvpm))
             enddo
           enddo

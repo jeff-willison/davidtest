@@ -7,6 +7,8 @@ MODULE module_domain_type
 
    IMPLICIT NONE
 
+   INTEGER, PARAMETER :: MAX_TILING_ZONES = 20
+
 ! needed to provide static definition of IO_MASK_SIZE
 #include "../inc/streams.h"
 
@@ -25,6 +27,16 @@ MODULE module_domain_type
    TYPE domain_ptr
       TYPE(domain), POINTER :: ptr
    END TYPE domain_ptr
+
+   TYPE tile_zone
+      INTEGER, POINTER :: i_start(:)
+      INTEGER, POINTER :: i_end(:)
+      INTEGER, POINTER :: j_start(:)
+      INTEGER, POINTER :: j_end(:)
+      INTEGER num_tiles
+      INTEGER num_tiles_x
+      INTEGER num_tiles_y
+   END TYPE tile_zone
 
    TYPE fieldlist
       CHARACTER*80    :: VarName
@@ -102,7 +114,7 @@ MODULE module_domain_type
 
    END TYPE fieldlist
 
-#include <state_subtypes.inc>
+#include "state_subtypes.inc"
 
    TYPE domain
 
@@ -110,7 +122,7 @@ MODULE module_domain_type
       TYPE ( fieldlist ), POINTER :: tail_statevars
 
 ! SEE THE INCLUDE FILE FOR DEFINITIONS OF STATE FIELDS WITHIN THE DOMAIN DATA STRUCTURE
-#include <state_struct.inc>
+#include "state_struct.inc"
 
       INTEGER                                             :: comms( max_comms ), shift_x, shift_y
 
@@ -138,6 +150,7 @@ MODULE module_domain_type
       INTEGER                                             :: num_parents, num_nests, num_siblings
       INTEGER      , DIMENSION( max_parents )             :: child_of_parent
       INTEGER      , DIMENSION( max_nests )               :: active
+      LOGICAL                                             :: active_this_task
 
       INTEGER      , DIMENSION(MAX_STREAMS)               :: nframes          ! frames per outfile for history 
                                                                               ! 1 is main history
@@ -146,7 +159,7 @@ MODULE module_domain_type
       TYPE(domain) , POINTER                              :: same_level
 
       LOGICAL      , DIMENSION ( 4 )                      :: bdy_mask         ! which boundaries are on processor
-
+      LOGICAL                                             :: interp_mp        ! .true. = MOIST, SCALAR u,d,f,s will be called
       LOGICAL                                             :: first_force
 
       ! domain dimensions
@@ -234,5 +247,10 @@ MODULE module_domain_type
 
       LOGICAL :: track_have_calculated
       LOGICAL :: track_have_input
+
+! 20121003 jm  : for caching tiling
+      TYPE( tile_zone ) :: tile_zones(MAX_TILING_ZONES)
+      LOGICAL :: tiling_latch(MAX_TILING_ZONES)
+
    END TYPE domain
 END MODULE module_domain_type

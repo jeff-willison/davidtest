@@ -13,13 +13,13 @@ MODULE module_mp_etanew
       REAL,PRIVATE,DIMENSION(MY_T1:MY_T2),SAVE :: MY_GROWTH
 !
       REAL, PRIVATE,PARAMETER :: DMImin=.05e-3, DMImax=1.e-3,           &
-     &      DelDMI=1.e-6,XMImin=1.e6*DMImin
-      INTEGER, PUBLIC,PARAMETER :: XMImax=1.e6*DMImax, XMIexp=.0536,    &
+     &      DelDMI=1.e-6,XMImin=1.e6*DMImin, XMIexp=.0536
+      INTEGER, PUBLIC,PARAMETER :: XMImax=1.e6*DMImax,                  &
      &                             MDImin=XMImin, MDImax=XMImax
       REAL, PRIVATE,DIMENSION(MDImin:MDImax) ::                         &
      &      ACCRI,SDENS,VSNOWI,VENTI1,VENTI2
 !
-      REAL, PRIVATE,PARAMETER :: DMRmin=.05e-3, DMRmax=1.e-3,          &
+      REAL, PRIVATE,PARAMETER :: DMRmin=.05e-3, DMRmax=1.e-3,           &
      &      DelDMR=1.e-6,XMRmin=1.e6*DMRmin, XMRmax=1.e6*DMRmax
       INTEGER, PRIVATE,PARAMETER :: MDRmin=XMRmin, MDRmax=XMRmax                   
       REAL, PRIVATE,DIMENSION(MDRmin:MDRmax)::                          &
@@ -1189,7 +1189,7 @@ MODULE module_mp_etanew
       !--- Collection of cloud water by large ice particles ("snow")
       !    PIACWI=PIACW for riming, PIACWI=0 for shedding
       !
-              FWS=MIN(.1, CIACW*VEL_INC*NLICE*ACCRI(INDEXS)/PP**C1)
+              FWS=MIN(1., CIACW*VEL_INC*NLICE*ACCRI(INDEXS)/PP**C1)
               PIACW=FWS*QW
               IF (TC .LT. 0.) PIACWI=PIACW    ! Large ice riming
             ENDIF           ! End IF (QLICE .GT. EPSQ)
@@ -1550,7 +1550,7 @@ MODULE module_mp_etanew
                 PREVP=MAX(DUM, PRLOSS)
               ELSE IF (QW .GT. EPSQ) THEN
                 FWR=CRACW*GAMMAR*N0r*ACCRR(INDEXR)
-                PRACW=MIN(.1,FWR)*QW
+                PRACW=MIN(1.0,FWR)*QW
               ENDIF           ! End IF (DWVr.LT.0. .AND. DUM.LE.EPSQ)
       !
               IF (TC.LT.0. .AND. TCC.LT.0.) THEN
@@ -2311,15 +2311,15 @@ nsteps = 0
 !
 !--- CIACW is used in calculating riming rates
 !      The assumed effective collection efficiency of cloud water rimed onto
-!      ice is =0.1 :
+!      ice is =0.5 :
 !
-        CIACW=0.1*DTPH*0.25*PI*(1.E5)**C1
+        CIACW=0.5*DTPH*0.25*PI*(1.E5)**C1
 
 !
-!--- CIACR is used in calculating freezing of rain colliding with large ice
-!      The assumed collection efficiency is 0.5
+!--- CIACR is us5d in calculating freezing of rain colliding with large ice
+!      The assumed collection efficiency is 1.0
 !
-        CIACR=0.5*PI*DTPH
+        CIACR=1.0*PI*DTPH
 !
 !--- Based on rain lookup tables for mean diameters from 0.05 to 1.0 mm
 !    * Four different functional relationships of mean drop diameter as 
@@ -2333,6 +2333,7 @@ nsteps = 0
         RR_DR3=N0r0*RRATE(MDR3)         ! RR for mean drop diameter of .32 mm
         RR_DR4=N0r0*RRATE(MDR4)         ! RR for mean drop diameter of .45 mm
         RR_DR5=N0r0*RRATE(MDR5)         ! RR for mean drop diameter of .675 mm
+        RR_DRmax=N0r0*RRATE(MDRmax)     ! RR for mean drop diameter of .45 mm
 !
         RQR_DRmin=N0r0*MASSR(MDRmin)    ! Rain content for mean drop diameter of .05 mm
 
@@ -2349,9 +2350,9 @@ nsteps = 0
         CN0r_DMRmax=1./(PI*RHOL*DMRmax**4)
 !
 !--- CRACW is used in calculating collection of cloud water by rain (an
-!      assumed collection efficiency of 0.1)
+!      assumed collection efficiency of 1.0)
 !
-        CRACW=0.1*DTPH*0.25*PI
+        CRACW=1.0*DTPH*0.25*PI
 !
         ESW0=1000.*FPVS0(T0C)     ! Saturation vapor pressure at 0C
         RFmax=1.1**Nrime          ! Maximum rime factor allowed

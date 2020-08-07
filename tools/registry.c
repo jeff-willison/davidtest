@@ -18,7 +18,8 @@
 #include "data.h"
 #include "sym.h"
 
-void
+/* SamT: bug fix: main returns int */
+int
 main( int argc, char *argv[], char *env[] )
 {
   char fname_in[NAMELEN], dir[NAMELEN], fname_tmp[NAMELEN], command[NAMELEN] ;
@@ -200,6 +201,7 @@ main( int argc, char *argv[], char *env[] )
   gen_wrf_io( "inc" ) ;
   gen_model_data_ord( "inc" ) ;
   gen_nest_interp( "inc" ) ;
+  gen_nest_v_interp( "inc") ; /*KAL added this for vertical interpolation*/
   gen_scalar_derefs( "inc" ) ;
   gen_streams("inc") ;
 
@@ -214,7 +216,6 @@ cleanup:
 #else
    sprintf(command,"/bin/rm -f %s\n",fname_tmp );
 #endif
-   system( command ) ;
-
+   return system( command ) ;
 }
 

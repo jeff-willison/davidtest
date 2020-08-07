@@ -15,14 +15,14 @@ PROGRAM real_data
    USE module_configure, ONLY : grid_config_rec_type, model_config_rec, &
         initial_config, get_config_as_buffer, set_config_as_buffer
    USE module_timing
-   USE module_state_description, ONLY : realonly
+   USE module_state_description, ONLY : realonly, THOMPSONAERO
 #ifdef NO_LEAP_CALENDAR
    USE module_symbols_util, ONLY: wrfu_cal_noleap
 #else
    USE module_symbols_util, ONLY: wrfu_cal_gregorian
 #endif
    USE module_check_a_mundo
-#ifdef WRF_CHEM
+#if ( WRF_CHEM == 1 )
    USE module_input_chem_data
    USE module_input_chem_bioemiss
 !  USE module_input_chem_emissopt3
@@ -31,7 +31,7 @@ PROGRAM real_data
 
    IMPLICIT NONE
 
-#ifdef WRF_CHEM
+#if ( WRF_CHEM == 1 )
   ! interface
    INTERFACE
      ! mediation-supplied 
@@ -128,6 +128,13 @@ real::t1,t2
 #else
    CALL initial_config
 #endif
+
+   !  There are variables in the Registry that are only required for the real
+   !  program, fields that come from the WPS package.  We define the run-time
+   !  flag that says to allocate space for these input-from-WPS-only arrays.
+
+   CALL nl_set_use_wps_input ( 1 , REALONLY )
+
    CALL check_nml_consistency
    CALL set_physics_rconfigs
 
@@ -135,12 +142,6 @@ real::t1,t2
    CALL set_wrf_debug_level ( debug_level )
 
    CALL  wrf_message ( program_name )
-
-   !  There are variables in the Registry that are only required for the real
-   !  program, fields that come from the WPS package.  We define the run-time
-   !  flag that says to allocate space for these input-from-WPS-only arrays.
-
-   CALL nl_set_use_wps_input ( 1 , REALONLY )
 
    !  Allocate the space for the mother of all domains.
 
@@ -236,10 +237,16 @@ real::t1,t2
          
          ok_so_far = .TRUE.
 
+         !DJW changed the check below so that instead of always comparing
+         !to d01 we now compare vertical levels between a grid and its parent.
+         !If 4 domains were used, this allows for vertical nesting to be enabled between grids 1 & 2 and
+         !between grids 3 & 4, but allows you to not use vertical grid nesting between grids 2 & 3.
          DO loop = 2 , model_config_rec%max_dom
-            IF ( model_config_rec%e_vert(loop) .NE.  model_config_rec%e_vert(1) ) THEN
+           IF (( model_config_rec%vert_refine_method(loop) .EQ. 0 ) .AND. ( model_config_rec%vert_refine_fact .EQ. 1 )) THEN
+             IF ( model_config_rec%e_vert(loop) .NE.  model_config_rec%e_vert(model_config_rec%parent_id(loop)) ) THEN
                CALL  wrf_message ( 'e_vert must be the same for each domain' )
                ok_so_far = .FALSE.
+              END IF
             END IF
          END DO
          IF ( .NOT. ok_so_far ) THEN
@@ -294,7 +301,7 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
    USE module_bc_time_utilities
    USE module_initialize_real
    USE module_optional_input
-#ifdef WRF_CHEM
+#if ( WRF_CHEM == 1 )
    USE module_input_chem_data
    USE module_input_chem_bioemiss
 !  USE module_input_chem_emissopt3
@@ -322,7 +329,7 @@ SUBROUTINE med_sidata_input ( grid , config_flags )
   ! Local
    INTEGER                :: time_step_begin_restart
    INTEGER                :: idsi , ierr , myproc
-   CHARACTER (LEN=80)      :: si_inpname
+   CHARACTER (LEN=256)     :: si_inpname
    CHARACTER (LEN=80)      :: message
 
    CHARACTER(LEN=19) :: start_date_char , end_date_char , current_date_char , next_date_char
@@ -416,8 +423,8 @@ real::t1,t2,t3,t4
       CALL nl_get_io_form_auxinput1( 1, io_form_auxinput1 )
 
       SELECT CASE ( use_package(io_form_auxinput1) )
-#ifdef NETCDF
-      CASE ( IO_NETCDF   )
+#if defined(NETCDF) || defined(PNETCDF) || defined(PIO)
+      CASE ( IO_NETCDF , IO_PNETCDF , IO_PIO )
 
 
       IF ( config_flags%auxinput1_inname(1:8) .NE. 'wrf_real' ) THEN
@@ -496,7 +503,7 @@ real::t1,t2,t3,t4
       CALL wrf_debug( 0, wrf_err_message )
       CALL model_to_grid_config_rec ( grid%id , model_config_rec , config_flags )
 
-#ifdef WRF_CHEM
+#if ( WRF_CHEM == 1 )
       IF ( loop == 1 ) THEN
          IF( grid%chem_opt > 0 ) then
            ! Read the chemistry data from a previous wrf forecast (wrfout file)
@@ -682,8 +689,9 @@ SUBROUTINE assemble_output ( grid , config_flags , loop , time_loop_max )
 
    INTEGER :: id1 , interval_seconds , ierr, rc, sst_update, grid_fdda
    INTEGER , SAVE :: id, id2,  id4 
-   CHARACTER (LEN=80) :: inpname , bdyname
+   CHARACTER (LEN=256) :: inpname , bdyname
    CHARACTER(LEN= 4) :: loop_char
+   CHARACTER (LEN=256) :: message
 character *19 :: temp19
 character *24 :: temp24 , temp24b
 
@@ -691,6 +699,7 @@ character *24 :: temp24 , temp24b
    REAL , DIMENSION(:,:,:) , ALLOCATABLE , SAVE :: mbdy2dtemp1
    REAL , DIMENSION(:,:,:) , ALLOCATABLE , SAVE :: ubdy3dtemp2 , vbdy3dtemp2 , tbdy3dtemp2 , pbdy3dtemp2 , qbdy3dtemp2
    REAL , DIMENSION(:,:,:) , ALLOCATABLE , SAVE :: mbdy2dtemp2
+   REAL , DIMENSION(:,:,:) , ALLOCATABLE , SAVE :: qn1bdy3dtemp1, qn1bdy3dtemp2, qn2bdy3dtemp1, qn2bdy3dtemp2
 real::t1,t2
 
    !  Various sizes that we need to be concerned about.
@@ -726,6 +735,18 @@ real::t1,t2
    sst_update = model_config_rec%sst_update
    grid_fdda = model_config_rec%grid_fdda(grid%id)
 
+   !  Domain check.  We cannot decompose the domain into pieces that are
+   !  too small to manufacture the lateral boundary conditions.
+
+   IF ( ( ipe-ips+2 .LE. spec_bdy_width ) .OR. &
+        ( jpe-jps+2 .LE. spec_bdy_width ) ) THEN
+     CALL wrf_message( 'The "width" of the lateral boundary conditions must be entirely contained within')
+     CALL wrf_message( 'the decomposed patch.                                                    ')
+     WRITE(message,fmt='("ips=",i4,", ipe=",i4,", jps=",i4,", jpe=",i4,", spec_bdy_width=",i2)') ips,ipe,jps,jpe,spec_bdy_width
+     CALL wrf_message( message )
+     CALL wrf_error_fatal( 'Submit the real program again with fewer processors ')
+   END IF
+
 
    IF ( loop .EQ. 1 ) THEN
 
@@ -751,7 +772,7 @@ real::t1,t2
          IF ( ALLOCATED ( pbdy3dtemp2 ) ) DEALLOCATE ( pbdy3dtemp2 )
          IF ( ALLOCATED ( qbdy3dtemp2 ) ) DEALLOCATE ( qbdy3dtemp2 )
          IF ( ALLOCATED ( mbdy2dtemp2 ) ) DEALLOCATE ( mbdy2dtemp2 )
-   
+
          ALLOCATE ( ubdy3dtemp1(ims:ime,kms:kme,jms:jme) )
          ALLOCATE ( vbdy3dtemp1(ims:ime,kms:kme,jms:jme) )
          ALLOCATE ( tbdy3dtemp1(ims:ime,kms:kme,jms:jme) )
@@ -765,9 +786,22 @@ real::t1,t2
          ALLOCATE ( qbdy3dtemp2(ims:ime,kms:kme,jms:jme) )
          ALLOCATE ( mbdy2dtemp2(ims:ime,1:1,    jms:jme) )
 
+         IF (config_flags%mp_physics.eq.THOMPSONAERO .AND.  config_flags%use_aero_icbc) THEN
+            IF ( ALLOCATED ( qn1bdy3dtemp1 ) ) DEALLOCATE ( qn1bdy3dtemp1 )
+            IF ( ALLOCATED ( qn2bdy3dtemp1 ) ) DEALLOCATE ( qn2bdy3dtemp1 )
+            IF ( ALLOCATED ( qn1bdy3dtemp2 ) ) DEALLOCATE ( qn1bdy3dtemp2 )
+            IF ( ALLOCATED ( qn2bdy3dtemp2 ) ) DEALLOCATE ( qn2bdy3dtemp2 )
+            ALLOCATE ( qn1bdy3dtemp1(ims:ime,kms:kme,jms:jme) )
+            ALLOCATE ( qn2bdy3dtemp1(ims:ime,kms:kme,jms:jme) )
+            ALLOCATE ( qn1bdy3dtemp2(ims:ime,kms:kme,jms:jme) )
+            ALLOCATE ( qn2bdy3dtemp2(ims:ime,kms:kme,jms:jme) )
+         END IF
+
       END IF
 
       !  Open the wrfinput file.  From this program, this is an *output* file.
+
+      grid%this_is_an_ideal_run = .FALSE.
 
       CALL construct_filename1( inpname , 'wrfinput' , grid%id , 2 )
       CALL open_w_dataset ( id1, TRIM(inpname) , grid , config_flags , output_input , "DATASET=INPUT", ierr )
@@ -814,6 +848,13 @@ real::t1,t2
                mbdy2dtemp1(i,1,j) = grid%mu_2(i,j)
             END DO
          END DO
+
+         IF (config_flags%mp_physics.eq.THOMPSONAERO .AND.  config_flags%use_aero_icbc) THEN
+            CALL couple ( grid%mu_2 , grid%mub , qn1bdy3dtemp1 , grid%scalar(:,:,:,P_QNWFA)      , 't' , grid%msfty , &
+                       ids, ide, jds, jde, kds, kde, ims, ime, jms, jme, kms, kme, ips, ipe, jps, jpe, kps, kpe )
+            CALL couple ( grid%mu_2 , grid%mub , qn2bdy3dtemp1 , grid%scalar(:,:,:,P_QNIFA)      , 't' , grid%msfty , &
+                       ids, ide, jds, jde, kds, kde, ims, ime, jms, jme, kms, kme, ips, ipe, jps, jpe, kps, kpe )
+         END IF
 
       END IF
 
@@ -880,6 +921,21 @@ real::t1,t2
                                                                     ids , ide , jds , jde , 1 , 1 , &
                                                                     ims , ime , jms , jme , 1 , 1 , &
                                                                     ips , ipe , jps , jpe , 1 , 1 )
+
+         IF (config_flags%mp_physics.eq.THOMPSONAERO .AND.  config_flags%use_aero_icbc) THEN
+            CALL stuff_bdy     ( qn1bdy3dtemp1 , grid%scalar_bxs(:,:,:,P_QNWFA), grid%scalar_bxe(:,:,:,P_QNWFA),     &
+                                            grid%scalar_bys(:,:,:,P_QNWFA), grid%scalar_bye(:,:,:,P_QNWFA),     &
+                                                              'T' , spec_bdy_width      ,               &
+                                                                    ids , ide , jds , jde , kds , kde , &
+                                                                    ims , ime , jms , jme , kms , kme , &
+                                                                    ips , ipe , jps , jpe , kps , kpe )
+            CALL stuff_bdy     ( qn2bdy3dtemp1 , grid%scalar_bxs(:,:,:,P_QNIFA), grid%scalar_bxe(:,:,:,P_QNIFA),     &
+                                            grid%scalar_bys(:,:,:,P_QNIFA), grid%scalar_bye(:,:,:,P_QNIFA),     &
+                                                              'T' , spec_bdy_width      ,               &
+                                                                    ids , ide , jds , jde , kds , kde , &
+                                                                    ims , ime , jms , jme , kms , kme , &
+                                                                    ips , ipe , jps , jpe , kps , kpe )
+         END IF
       END IF
 
 
@@ -939,6 +995,13 @@ real::t1,t2
                mbdy2dtemp2(i,1,j) = grid%mu_2(i,j)
             END DO
          END DO
+
+         IF (config_flags%mp_physics.eq.THOMPSONAERO .AND.  config_flags%use_aero_icbc) THEN
+            CALL couple ( grid%mu_2 , grid%mub , qn1bdy3dtemp2 , grid%scalar(:,:,:,P_QNWFA)      , 't' , grid%msfty , &
+                       ids, ide, jds, jde, kds, kde, ims, ime, jms, jme, kms, kme, ips, ipe, jps, jpe, kps, kpe )
+            CALL couple ( grid%mu_2 , grid%mub , qn2bdy3dtemp2 , grid%scalar(:,:,:,P_QNIFA)      , 't' , grid%msfty , &
+                       ids, ide, jds, jde, kds, kde, ims, ime, jms, jme, kms, kme, ips, ipe, jps, jpe, kps, kpe )
+         END IF
 
       END IF
 
@@ -1023,6 +1086,24 @@ real::t1,t2
                                                                ids , ide , jds , jde , 1 , 1 , &
                                                                ims , ime , jms , jme , 1 , 1 , &
                                                                ips , ipe , jps , jpe , 1 , 1 )
+         IF (config_flags%mp_physics.eq.THOMPSONAERO .AND.  config_flags%use_aero_icbc) THEN
+            CALL stuff_bdytend ( qn1bdy3dtemp2 , qn1bdy3dtemp1 , REAL(interval_seconds) ,                 &
+                                                               grid%scalar_btxs(:,:,:,P_QNWFA), grid%scalar_btxe(:,:,:,P_QNWFA), &
+                                                               grid%scalar_btys(:,:,:,P_QNWFA), grid%scalar_btye(:,:,:,P_QNWFA), &
+                                                               'T' , &
+                                                               spec_bdy_width      , &
+                                                               ids , ide , jds , jde , kds , kde , &
+                                                               ims , ime , jms , jme , kms , kme , &
+                                                               ips , ipe , jps , jpe , kps , kpe )
+            CALL stuff_bdytend ( qn2bdy3dtemp2 , qn2bdy3dtemp1 , REAL(interval_seconds) ,                 &
+                                                               grid%scalar_btxs(:,:,:,P_QNIFA), grid%scalar_btxe(:,:,:,P_QNIFA), &
+                                                               grid%scalar_btys(:,:,:,P_QNIFA), grid%scalar_btye(:,:,:,P_QNIFA), &
+                                                               'T' , &
+                                                               spec_bdy_width      , &
+                                                               ids , ide , jds , jde , kds , kde , &
+                                                               ims , ime , jms , jme , kms , kme , &
+                                                               ips , ipe , jps , jpe , kps , kpe )
+         END IF
       END IF
 
       !  Both pieces of the boundary data are now available to be written (initial time and tendency).
@@ -1133,6 +1214,17 @@ real::t1,t2
                END DO
             END DO
 
+            IF (config_flags%mp_physics.eq.THOMPSONAERO .AND.  config_flags%use_aero_icbc) THEN
+               DO j = jps , jpe
+                  DO k = kps , kpe
+                     DO i = ips , ipe
+                        qn1bdy3dtemp1(i,k,j) = qn1bdy3dtemp2(i,k,j)
+                        qn2bdy3dtemp1(i,k,j) = qn2bdy3dtemp2(i,k,j)
+                     END DO
+                  END DO
+               END DO
+            END IF
+
          END IF
 
          IF(grid_fdda .GE. 1)THEN
@@ -1198,6 +1290,21 @@ real::t1,t2
                                                                        ids , ide , jds , jde , 1 , 1 , &
                                                                        ims , ime , jms , jme , 1 , 1 , &
                                                                        ips , ipe , jps , jpe , 1 , 1 )
+
+            IF (config_flags%mp_physics.eq.THOMPSONAERO .AND.  config_flags%use_aero_icbc) THEN
+               CALL stuff_bdy     ( qn1bdy3dtemp1 , grid%scalar_bxs(:,:,:,P_QNWFA), grid%scalar_bxe(:,:,:,P_QNWFA),     &
+                                                    grid%scalar_bys(:,:,:,P_QNWFA), grid%scalar_bye(:,:,:,P_QNWFA),     &
+                                                                 'T' , spec_bdy_width      ,               &
+                                                                       ids , ide , jds , jde , kds , kde , &
+                                                                       ims , ime , jms , jme , kms , kme , &
+                                                                       ips , ipe , jps , jpe , kps , kpe )
+               CALL stuff_bdy     ( qn2bdy3dtemp1 , grid%scalar_bxs(:,:,:,P_QNIFA), grid%scalar_bxe(:,:,:,P_QNIFA),     &
+                                                    grid%scalar_bys(:,:,:,P_QNIFA), grid%scalar_bye(:,:,:,P_QNIFA),     &
+                                                                 'T' , spec_bdy_width      ,               &
+                                                                       ids , ide , jds , jde , kds , kde , &
+                                                                       ims , ime , jms , jme , kms , kme , &
+                                                                       ips , ipe , jps , jpe , kps , kpe )
+            END IF
    
          END IF
 

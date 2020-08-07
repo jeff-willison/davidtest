@@ -23,7 +23,9 @@ MODULE module_ra_cam_support
       integer :: idxBCPHI
       integer :: idxBG  
       integer :: idxVOLC
-
+      real, pointer :: ozmixin_save(:,:,:,:), lat_ozone_save(:), plev_ozone_save(:)
+      integer :: levsiz_ozone_save=-1
+      logical :: have_ozone=.false.
   integer :: mxaerl                            ! Maximum level of background aerosol
 
 ! indices to sections of array that represent
@@ -250,6 +252,19 @@ real(r8) :: gdst(ndstsz, nspint) ! dust asymmetry parameter
       real(r8) cplos    ! constant for ozone path length integral
       real(r8) cplol    ! constant for ozone path length integral
 
+!ccc
+#ifdef CLWRFGHG
+!! UC-CLWRF June.09
+   real(r8) :: co2vmr = 3.550e-4         ! co2   volume mixing ratio
+   real(r8) :: n2ovmr = 0.311e-6         ! n2o   volume mixing ratio
+   real(r8) :: ch4vmr = 1.714e-6         ! ch4   volume mixing ratio
+   real(r8) :: f11vmr = 0.280e-9         ! cfc11 volume mixing ratio
+   real(r8) :: f12vmr = 0.503e-9         ! cfc12 volume mixing ratio
+
+   integer, parameter               :: cyr = 500     ! maximum num. of lines in 'CAMtr_volume_mixing_ratio' file
+#else
+!ccc
+
 !From ghg_surfvals.F90 module
    real(r8) :: co2vmr = 3.550e-4         ! co2   volume mixing ratio
    real(r8) :: n2ovmr = 0.311e-6         ! n2o   volume mixing ratio
@@ -329,7 +344,8 @@ integer, parameter :: cyr = 233  ! number of years of co2 data
     723.308, 730.1008, 736.9958, 743.993, 751.0975, 758.3183, 765.6594,     &
     773.1207, 780.702, 788.4033, 796.2249, 804.1667, 812.2289, 820.4118,    &
     828.6444, 828.6444 /)
-
+#endif
+!ccc
       integer  :: ntoplw      ! top level to solve for longwave cooling (WRF sets this to 1 for model top below 10 mb)
 
       logical :: masterproc = .true.
@@ -1416,6 +1432,167 @@ subroutine trcmix(lchnk   ,ncol     ,pcols, pver, &
 !
 end subroutine trcmix
 
+!ccc
+#ifdef CLWRFGHG
+
+subroutine trcmix_clwrf(lchnk   ,ncol     ,pcols, pver,       &
+                  pmid    ,clat, n2ovmr, ch4vmr, f11vmr,      &
+                  f12vmr, n2o      ,ch4     ,                 &
+                  cfc11   , cfc12   )
+!----------------------------------------------------------------------- 
+! 
+! Purpose: 
+! Specify zonal mean mass mixing ratios of CH4, N2O, CFC11 and
+! CFC12
+! 
+! Method: 
+! Distributions assume constant mixing ratio in the troposphere
+! and a decrease of mixing ratio in the stratosphere. Tropopause
+! defined by ptrop. The scale height of the particular trace gas
+! depends on latitude. This assumption produces a more realistic
+! stratospheric distribution of the various trace gases.
+! 
+! Author: J. Kiehl
+! 
+!-----------------------------------------------------------------------
+!  use shr_kind_mod, only: r8 => shr_kind_r8
+!  use ppgrid
+!  use phys_grid,    only: get_rlat_all_p
+!  use physconst,    only: mwdry, mwch4, mwn2o, mwf11, mwf12
+
+   implicit none
+
+!-----------------------------Arguments---------------------------------
+!
+! Input
+!
+   integer, intent(in) :: lchnk                    ! chunk identifier
+   integer, intent(in) :: ncol                     ! number of atmospheric columns
+   integer, intent(in) :: pcols, pver
+
+   real(r8), intent(in) :: pmid(pcols,pver)        ! model pressures
+   real(r8), intent(in) :: clat(pcols)             ! latitude in radians for columns
+   real(r8), intent(in) :: n2ovmr, ch4vmr, f11vmr, f12vmr
+!
+! Output
+!
+   real(r8), intent(out) :: n2o(pcols,pver)         ! nitrous oxide mass mixing ratio
+   real(r8), intent(out) :: ch4(pcols,pver)         ! methane mass mixing ratio
+   real(r8), intent(out) :: cfc11(pcols,pver)       ! cfc11 mass mixing ratio
+   real(r8), intent(out) :: cfc12(pcols,pver)       ! cfc12 mass mixing ratio
+
+!
+!--------------------------Local Variables------------------------------
+
+   real(r8) :: rmwn2o       ! ratio of molecular weight n2o   to dry air
+   real(r8) :: rmwch4       ! ratio of molecular weight ch4   to dry air
+   real(r8) :: rmwf11       ! ratio of molecular weight cfc11 to dry air
+   real(r8) :: rmwf12       ! ratio of molecular weight cfc12 to dry air
+!
+   integer i                ! longitude loop index
+   integer k                ! level index
+!
+!  real(r8) clat(pcols)         ! latitude in radians for columns
+   real(r8) coslat(pcols)       ! cosine of latitude
+   real(r8) dlat                ! latitude in degrees
+   real(r8) ptrop               ! pressure level of tropopause
+   real(r8) pratio              ! pressure divided by ptrop
+!
+   real(r8) xn2o                ! pressure scale height for n2o
+   real(r8) xch4                ! pressure scale height for ch4
+   real(r8) xcfc11              ! pressure scale height for cfc11
+   real(r8) xcfc12              ! pressure scale height for cfc12
+!
+   real(r8) ch40                ! tropospheric mass mixing ratio for ch4
+   real(r8) n2o0                ! tropospheric mass mixing ratio for n2o
+   real(r8) cfc110              ! tropospheric mass mixing ratio for cfc11
+   real(r8) cfc120              ! tropospheric mass mixing ratio for cfc12
+  CHARACTER (LEN=256)           :: message
+!
+!-----------------------------------------------------------------------
+   rmwn2o = mwn2o/mwdry      ! ratio of molecular weight n2o   to dry air
+   rmwch4 = mwch4/mwdry      ! ratio of molecular weight ch4   to dry air
+   rmwf11 = mwf11/mwdry      ! ratio of molecular weight cfc11 to dry air
+   rmwf12 = mwf12/mwdry      ! ratio of molecular weight cfc12 to dry air
+!
+! get latitudes
+!
+!  call get_rlat_all_p(lchnk, ncol, clat)
+   do i = 1, ncol
+      coslat(i) = cos(clat(i))
+   end do
+!
+! set tropospheric mass mixing ratios
+!
+   ch40   = rmwch4 * ch4vmr
+   n2o0   = rmwn2o * n2ovmr
+   cfc110 = rmwf11 * f11vmr
+   cfc120 = rmwf12 * f12vmr
+
+   do i = 1, ncol
+      coslat(i) = cos(clat(i))
+   end do
+!
+   do k = 1,pver
+      do i = 1,ncol
+!
+!        set stratospheric scale height factor for gases
+         dlat = abs(57.2958 * clat(i))
+         if(dlat.le.45.0) then
+            xn2o = 0.3478 + 0.00116 * dlat
+            xch4 = 0.2353
+            xcfc11 = 0.7273 + 0.00606 * dlat
+            xcfc12 = 0.4000 + 0.00222 * dlat
+         else
+            xn2o = 0.4000 + 0.013333 * (dlat - 45)
+            xch4 = 0.2353 + 0.0225489 * (dlat - 45)
+            xcfc11 = 1.00 + 0.013333 * (dlat - 45)
+            xcfc12 = 0.50 + 0.024444 * (dlat - 45)
+         end if
+!
+!        pressure of tropopause
+         ptrop = 250.0e2 - 150.0e2*coslat(i)**2.0
+!
+!        determine output mass mixing ratios
+         if (pmid(i,k) >= ptrop) then
+            ch4(i,k) = ch40
+            n2o(i,k) = n2o0
+            cfc11(i,k) = cfc110
+            cfc12(i,k) = cfc120
+         else
+            pratio = pmid(i,k)/ptrop
+            ch4(i,k) = ch40 * (pratio)**xch4
+            n2o(i,k) = n2o0 * (pratio)**xn2o
+            cfc11(i,k) = cfc110 * (pratio)**xcfc11
+            cfc12(i,k) = cfc120 * (pratio)**xcfc12
+         end if
+      end do
+   end do
+!
+   WRITE(message,*)'CLWRF-trcmix. ch4vmr:',ch4vmr,' n2ovmr:',n2ovmr,' cfc11vmr:',f11vmr,' cfc12vmr:',f12vmr
+   CALL wrf_debug(0, message)
+   WRITE(message,*)'CLWRF-trcmix. for i= ncol/2', ncol/2,' k=pver/2',pver/2,'__________'
+   CALL wrf_debug(0, message)
+
+   ptrop = 250.0e2 - 150.0e2*coslat(ncol/2)**2.0
+   if (any(pmid >= ptrop)) then
+      WRITE(message,*)'CLWRF-trcmix. pmid: ',pmid(ncol/2,pver/2),' ch4:',ch4(ncol/2,pver/2),' n2o:',n2o(ncol/2,pver/2),                 &
+           ' cfc11:',cfc11(ncol/2,pver/2),' cfc12:',cfc12(ncol/2,pver/2)
+   else
+      WRITE(message,*)'CLWRF-trcmix. pratio: ',pmid(ncol/2,pver/2)/ptrop,' ch4:',ch4(ncol/2,pver/2),' n2o:',n2o(ncol/2,pver/2),                 &
+           ' cfc11:',cfc11(ncol/2,pver/2),' cfc12:',cfc12(ncol/2,pver/2)
+   endif
+   CALL wrf_debug(0, message)
+   
+   return
+!
+end subroutine trcmix_clwrf
+
+
+#endif
+
+!ccc
+
 subroutine trcplk(lchnk   ,ncol    ,pcols, pver, pverp,         &
                   tint    ,tlayr   ,tplnke  ,emplnk  ,abplnk1 , &
                   abplnk2 )
@@ -1798,7 +1975,7 @@ subroutine background(lchnk, ncol, pint, pcols, pverr, pverrp, mmr)
 !-----------------------------------------------------------------------
    implicit none
 !-----------------------------------------------------------------------
-!#include <ptrrgrid.h>
+!#include "ptrrgrid.h"
 !------------------------------Arguments--------------------------------
 !
 ! Input arguments
@@ -1929,7 +2106,12 @@ subroutine vert_interpolate (Match_ps, aerosolc, m_hybi, paerlev, naer_c, pint, 
    real(r8) v_coord                    ! vertical coordinate
    real(r8) m_to_mmr                   ! mass to mass mixing ratio conversion factor
    real(r8) AER_diff                   ! temp var for difference between aerosol masses
-
+!ccc
+#ifdef CLWRFGHG
+!CLWRF-UC July.09
+!   LOGICAL ISNAND, EXTERNAL           ! NaN values detection
+#endif
+!ccc
 !  call t_startf ('vert_interpolate')
 !
 ! Initialize index array
@@ -2061,6 +2243,17 @@ subroutine vert_interpolate (Match_ps, aerosolc, m_hybi, paerlev, naer_c, pint, 
                write(6,*)'vert_interpolate: aerosol(k),(k+1)',AEROSOL(i,k,m),AEROSOL(i,k+1,m)
                write(6,*)'vert_interpolate: pint(k+1),(k)',pint(i,k+1),pint(i,k)
                write(6,*)'n,c',n,c
+!ccc
+#ifdef CLWRFGHG
+!CLWRF-UC July.09
+!               IF (ISNAND(pint(i,k+1))) THEN
+                 CALL wrf_error_fatal('CLWRF-module_ra_cam_support. vert_interpolate: ERROR -- error -- Error of computation pint=NaN')
+!               ENDIF
+!               IF (ISNAND(pint(i,k))) THEN
+!                 CALL wrf_error_fatal('CLWRF-module_ra_cam_support. vert_interpolate: ERROR -- error -- Error of computation pint=NaN')
+!               ENDIF
+#endif
+!ccc
                call endrun()
             end if
          end do
@@ -3265,6 +3458,10 @@ subroutine oznini(ozmixm,pin,levsiz,num_months,XLAT,                &
 ! It should be replaced by monthly climatology that varies latitudinally and vertically
 !
 
+#if ( defined( DM_PARALLEL ) && ( ! defined( STUBMPI ) ) )
+  use mpi
+  use module_dm, only: local_communicator
+#endif
       IMPLICIT NONE
 
    INTEGER,      INTENT(IN   )    ::   ids,ide, jds,jde, kds,kde, &
@@ -3283,20 +3480,32 @@ subroutine oznini(ozmixm,pin,levsiz,num_months,XLAT,                &
 ! Local
    INTEGER, PARAMETER :: latsiz = 64
    INTEGER, PARAMETER :: lonsiz = 1
-   INTEGER :: i, j, k, itf, jtf, ktf, m, pin_unit, lat_unit, oz_unit
+   INTEGER :: i, j, k, itf, jtf, ktf, m, pin_unit, lat_unit, oz_unit, ierr
    REAL    :: interp_pt
-   CHARACTER*256 :: message
+   CHARACTER*255 :: message
+   real, pointer :: ozmixin(:,:,:,:), lat_ozone(:), plev(:)
+!   REAL, DIMENSION( lonsiz, levsiz, latsiz, num_months )    ::   &
+!                                                            OZMIXIN
 
-   REAL,  DIMENSION( lonsiz, levsiz, latsiz, num_months )    ::   &
-                                                            OZMIXIN
-
-   REAL,  DIMENSION(latsiz)                ::             lat_ozone
+   logical, external :: wrf_dm_on_monitor
 
    jtf=min0(jte,jde-1)
    ktf=min0(kte,kde-1)
    itf=min0(ite,ide-1)
 
-
+   if_have_ozone: if(.not.have_ozone) then
+    call wrf_debug(1,'Do not have ozone.  Must read it in.')
+    ! Allocate and set local aliases:
+    levsiz_ozone_save=levsiz
+    allocate(plev_ozone_save(levsiz),lat_ozone_save(latsiz))
+    allocate(ozmixin_save(lonsiz, levsiz, latsiz, num_months))
+    plev=>plev_ozone_save
+    lat_ozone=>lat_ozone_save
+    ozmixin=>ozmixin_save
+#if ( defined( DM_PARALLEL ) && ( ! defined( STUBMPI ) ) )
+    if_master: if(wrf_dm_on_monitor()) then
+    call wrf_debug(1,'Master rank reads ozone.')
+#endif
 !-- read in ozone pressure data
 
      WRITE(message,*)'num_months = ',num_months
@@ -3305,13 +3514,14 @@ subroutine oznini(ozmixm,pin,levsiz,num_months,XLAT,                &
       pin_unit = 27
         OPEN(pin_unit, FILE='ozone_plev.formatted',FORM='FORMATTED',STATUS='OLD')
         do k = 1,levsiz
-        READ (pin_unit,*)pin(k)
+        READ (pin_unit,*)plev(k)
         end do
       close(27)
 
       do k=1,levsiz
-        pin(k) = pin(k)*100.
+         plev(k) = plev(k)*100.
       end do
+      pin=plev ! copy to grid array
 
 !-- read in ozone lat data
 
@@ -3338,7 +3548,31 @@ subroutine oznini(ozmixm,pin,levsiz,num_months,XLAT,                &
       enddo
       enddo
       close(29)
-
+#if ( defined( DM_PARALLEL ) && ( ! defined( STUBMPI ) ) )
+     endif if_master
+     call wrf_debug(1,"Broadcast ozone to other ranks.")
+     call MPI_Bcast(ozmixin,size(ozmixin),MPI_REAL,0,local_communicator,ierr)
+     call MPI_Bcast(pin,size(pin),MPI_REAL,0,local_communicator,ierr)
+     plev=pin
+     call MPI_Bcast(lat_ozone,size(lat_ozone),MPI_REAL,0,local_communicator,ierr)
+#endif
+   else ! already read in ozone data
+    ! Make sure, first:
+    if(levsiz/=levsiz_ozone_save) then
+3081   format('Logic error in caller: levsiz=',I0,' but prior call used ',I0,'.')
+       write(message,3081) levsiz,levsiz_ozone_save
+       call wrf_error_fatal(message)
+    endif
+    if(.not.(associated(plev_ozone_save) .and. &
+             associated(lat_ozone_save) .and. &
+             associated(ozmixin_save))) then
+       call wrf_error_fatal('Ozone save arrays are not allocated.')
+    endif
+    ! Recover the pointers to allocated data:
+    plev=>plev_ozone_save
+    lat_ozone=>lat_ozone_save
+    ozmixin=>ozmixin_save
+   endif if_have_ozone
 
 !-- latitudinally interpolate ozone data (and extend longitudinally)
 !-- using function lin_interpol2(x, f, y) result(g)

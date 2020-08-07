@@ -14,6 +14,7 @@ CONTAINS
    SUBROUTINE SFCLAY(U3D,V3D,T3D,QV3D,P3D,dz8w,                    &
                      CP,G,ROVCP,R,XLV,PSFC,CHS,CHS2,CQS2,CPM,      &
                      ZNT,UST,PBLH,MAVAIL,ZOL,MOL,REGIME,PSIM,PSIH, &
+                     FM,FH,                                        &
                      XLAND,HFX,QFX,LH,TSK,FLHC,FLQC,QGH,QSFC,RMOL, &
                      U10,V10,TH2,T2,Q2,                            &
                      GZ1OZ0,WSPD,BR,ISFFLX,DX,                     &
@@ -26,6 +27,12 @@ CONTAINS
                      ustm,ck,cka,cd,cda,isftcflx,iz0tlnd,scm_force_flux    )
 !-------------------------------------------------------------------
       IMPLICIT NONE
+!-------------------------------------------------------------------
+!   Changes in V3.7 over water surfaces: 
+!          1. for ZNT/Cd, replacing constant OZO with 0.11*1.5E-5/UST(I)
+!             the COARE 3.5 (Edson et al. 2013) formulation is also available
+!          2. for VCONV, reducing magnitude by half
+!          3. for Ck, replacing Carlson-Boland with COARE 3
 !-------------------------------------------------------------------
 !-- U3D         3D u-velocity interpolated to theta points (m/s)
 !-- V3D         3D v-velocity interpolated to theta points (m/s)
@@ -50,6 +57,8 @@ CONTAINS
 !-- REGIME      flag indicating PBL regime (stable, unstable, etc.)
 !-- PSIM        similarity stability function for momentum
 !-- PSIH        similarity stability function for heat
+!-- FM          integrated stability function for momentum
+!-- FH          integrated stability function for heat
 !-- XLAND       land mask (1 for land, 2 for water)
 !-- HFX         upward heat flux at the surface (W/m^2)
 !-- QFX         upward moisture flux at the surface (kg/m^2/s)
@@ -146,7 +155,7 @@ CONTAINS
 !
       REAL,     DIMENSION( ims:ime, jms:jme )                    , &
                 INTENT(INOUT)   ::                 GZ1OZ0,WSPD,BR, &
-                                                        PSIM,PSIH
+                                                  PSIM,PSIH,FM,FH
 
       REAL,     DIMENSION( ims:ime, kms:kme, jms:jme )           , &
                 INTENT(IN   )   ::                            U3D, &
@@ -171,12 +180,13 @@ CONTAINS
                 INTENT(INOUT)   ::                                 &
                                                               QGH
 
-
-                                    
       REAL,     INTENT(IN   )               ::   CP,G,ROVCP,R,XLV,DX
  
       REAL, OPTIONAL, DIMENSION( ims:ime, jms:jme )              , &
-                INTENT(OUT)     ::              ck,cka,cd,cda,ustm
+                INTENT(OUT)     ::                  ck,cka,cd,cda
+
+      REAL, OPTIONAL, DIMENSION( ims:ime, jms:jme )              , &
+                INTENT(INOUT)   ::                           USTM
 
       INTEGER,  OPTIONAL,  INTENT(IN )   ::     ISFTCFLX, IZ0TLND
       INTEGER,  OPTIONAL,  INTENT(IN )   ::     SCM_FORCE_FLUX
@@ -214,6 +224,7 @@ CONTAINS
                 CQS2(ims,j),CPM(ims,j),PBLH(ims,j), RMOL(ims,j),   &
                 ZNT(ims,j),UST(ims,j),MAVAIL(ims,j),ZOL(ims,j),    &
                 MOL(ims,j),REGIME(ims,j),PSIM(ims,j),PSIH(ims,j),  &
+                FM(ims,j),FH(ims,j),                               &
                 XLAND(ims,j),HFX(ims,j),QFX(ims,j),TSK(ims,j),     &
                 U10(ims,j),V10(ims,j),TH2(ims,j),T2(ims,j),        &
                 Q2(ims,j),FLHC(ims,j),FLQC(ims,j),QGH(ims,j),      &
@@ -239,7 +250,7 @@ CONTAINS
 !-------------------------------------------------------------------
    SUBROUTINE SFCLAY1D(J,UX,VX,T1D,QV1D,P1D,dz8w1d,                &
                      CP,G,ROVCP,R,XLV,PSFCPA,CHS,CHS2,CQS2,CPM,PBLH,RMOL, &
-                     ZNT,UST,MAVAIL,ZOL,MOL,REGIME,PSIM,PSIH,      &
+                     ZNT,UST,MAVAIL,ZOL,MOL,REGIME,PSIM,PSIH,FM,FH,&
                      XLAND,HFX,QFX,TSK,                            &
                      U10,V10,TH2,T2,Q2,FLHC,FLQC,QGH,              &
                      QSFC,LH,GZ1OZ0,WSPD,BR,ISFFLX,DX,             &
@@ -286,7 +297,7 @@ CONTAINS
 !
       REAL,     DIMENSION( ims:ime )                             , &
                 INTENT(INOUT)   ::                 GZ1OZ0,WSPD,BR, &
-                                                        PSIM,PSIH
+                                                  PSIM,PSIH,FM,FH
 
       REAL,     DIMENSION( ims:ime )                             , &
                 INTENT(INOUT)   ::                            ZNT, &
@@ -321,7 +332,9 @@ CONTAINS
                                                               T1D
  
       REAL, OPTIONAL, DIMENSION( ims:ime )                       , &
-                INTENT(OUT)     ::              ck,cka,cd,cda,ustm
+                INTENT(OUT)     ::                  ck,cka,cd,cda
+      REAL, OPTIONAL, DIMENSION( ims:ime )                       , &
+                INTENT(INOUT)   ::                           USTM
 
       INTEGER,  OPTIONAL,  INTENT(IN )   ::     ISFTCFLX, IZ0TLND
       INTEGER,  OPTIONAL,  INTENT(IN )   ::     SCM_FORCE_FLUX
@@ -357,7 +370,9 @@ CONTAINS
       REAL    ::  PL,THCON,TVCON,E1
       REAL    ::  ZL,TSKV,DTHVDZ,DTHVM,VCONV,RZOL,RZOL2,RZOL10,ZOL2,ZOL10
       REAL    ::  DTG,PSIX,DTTHX,PSIX10,PSIT,PSIT2,PSIQ,PSIQ2,PSIQ10
-      REAL    ::  FLUXC,VSGD,Z0Q,VISC,RESTAR,CZIL,RESTAR2
+      REAL    ::  FLUXC,VSGD,Z0Q,VISC,RESTAR,CZIL,GZ0OZQ,GZ0OZT
+      REAL    ::  ZW, ZN1, ZN2
+      REAL    ::  Z0T, CZC
 !-------------------------------------------------------------------
       KL=kte
 
@@ -472,7 +487,7 @@ CONTAINS
         TSKV=THGB(I)*(1.+EP1*QSFC(I))                     
         DTHVDZ=(THVX(I)-TSKV)                                                 
 !  Convective velocity scale Vc and subgrid-scale velocity Vsg
-!  following Beljaars (1995, QJRMS) and Mahrt and Sun (1995, MWR)
+!  following Beljaars (1994, QJRMS) and Mahrt and Sun (1995, MWR)
 !                                ... HONG Aug. 2001
 !
 !       VCONV = 0.25*sqrt(g/tskv*pblh(i)*dthvm)
@@ -487,7 +502,9 @@ CONTAINS
         ELSE
           DTHVM=0.
         ENDIF
-        VCONV = 2.*SQRT(DTHVM)
+!       VCONV = 2.*SQRT(DTHVM)
+! V3.7: reducing contribution in calm conditions
+        VCONV = SQRT(DTHVM)
         endif
 ! Mahrt and Sun low-res correction
         VSGD = 0.32 * (max(dx/5000.-1.,0.))**.33
@@ -681,6 +698,26 @@ CONTAINS
         PSIQ2=ALOG(KARMAN*UST(I)*2./XKA+2./ZL)-PSIH2(I)                                   
 ! AHW: mods to compute ck, cd
         PSIQ10=ALOG(KARMAN*UST(I)*10./XKA+10./ZL)-PSIH10(I)
+
+! V3.7: using Fairall 2003 to compute z0q and z0t over water:
+!       adapted from module_sf_mynn.F
+        IF ( (XLAND(I)-1.5).GE.0. ) THEN
+              VISC=(1.32+0.009*(SCR3(I)-273.15))*1.E-5
+!             VISC=1.326e-5*(1. + 6.542e-3*SCR3(I) + 8.301e-6*SCR3(I)*SCR3(I) &
+!                 - 4.84e-9*SCR3(I)*SCR3(I)*SCR3(I))
+              RESTAR=UST(I)*ZNT(I)/VISC
+              Z0T = (5.5e-5)*(RESTAR**(-0.60))
+              Z0T = MIN(Z0T,1.0e-4)
+              Z0T = MAX(Z0T,2.0e-9)
+              Z0Q = Z0T
+
+              PSIQ=max(ALOG((ZA(I)+Z0Q)/Z0Q)-PSIH(I), 2.)
+              PSIT=max(ALOG((ZA(I)+Z0T)/Z0T)-PSIH(I), 2.)
+              PSIQ2=max(ALOG((2.+Z0Q)/Z0Q)-PSIH2(I), 2.)
+              PSIT2=max(ALOG((2.+Z0T)/Z0T)-PSIH2(I), 2.)
+              PSIQ10=max(ALOG((10.+Z0Q)/Z0Q)-PSIH10(I), 2.)
+        ENDIF
+
         IF ( PRESENT(ISFTCFLX) ) THEN
            IF ( ISFTCFLX.EQ.1 .AND. (XLAND(I)-1.5).GE.0. ) THEN
 ! v3.1
@@ -698,16 +735,19 @@ CONTAINS
            IF ( ISFTCFLX.EQ.2 .AND. (XLAND(I)-1.5).GE.0. ) THEN
 ! AHW: Garratt formula: Calculate roughness Reynolds number
 !        Kinematic viscosity of air (linear approc to
-!                 temp dependence at sea levle)
+!                 temp dependence at sea level)
+! GZ0OZT and GZ0OZQ are based off formulas from Brutsaert (1975), which
+! Garratt (1992) used with values of k = 0.40, Pr = 0.71, and Sc = 0.60
               VISC=(1.32+0.009*(SCR3(I)-273.15))*1.E-5
 !!            VISC=1.5E-5
               RESTAR=UST(I)*ZNT(I)/VISC
-              RESTAR2=2.48*SQRT(SQRT(RESTAR))-2.
-              PSIT=GZ1OZ0(I)-PSIH(I)+RESTAR2
-              PSIQ=GZ1OZ0(I)-PSIH(I)+2.28*SQRT(SQRT(RESTAR))-2.
-              PSIT2=GZ2OZ0(I)-PSIH2(I)+RESTAR2
-              PSIQ2=GZ2OZ0(I)-PSIH2(I)+2.28*SQRT(SQRT(RESTAR))-2.
-              PSIQ10=GZ10OZ0(I)-PSIH(I)+2.28*SQRT(SQRT(RESTAR))-2.
+              GZ0OZT=0.40*(7.3*SQRT(SQRT(RESTAR))*SQRT(0.71)-5.)
+              GZ0OZQ=0.40*(7.3*SQRT(SQRT(RESTAR))*SQRT(0.60)-5.)
+              PSIT=GZ1OZ0(I)-PSIH(I)+GZ0OZT
+              PSIQ=GZ1OZ0(I)-PSIH(I)+GZ0OZQ
+              PSIT2=GZ2OZ0(I)-PSIH2(I)+GZ0OZT
+              PSIQ2=GZ2OZ0(I)-PSIH2(I)+GZ0OZQ
+              PSIQ10=GZ10OZ0(I)-PSIH(I)+GZ0OZQ
            ENDIF
         ENDIF
         IF(PRESENT(ck) .and. PRESENT(cd) .and. PRESENT(cka) .and. PRESENT(cda)) THEN
@@ -759,6 +799,8 @@ CONTAINS
         DENOMQ(I)=PSIQ
         DENOMQ2(I)=PSIQ2
         DENOMT2(I)=PSIT2
+        FM(I)=PSIX
+        FH(I)=PSIT
   330 CONTINUE                                                                   
 !                                                                                
   335 CONTINUE                                                                   
@@ -779,17 +821,29 @@ CONTAINS
                                                                                  
       DO 360 I=its,ite
         IF((XLAND(I)-1.5).GE.0)THEN                                            
-          ZNT(I)=CZO*UST(I)*UST(I)/G+OZO                                   
+!         ZNT(I)=CZO*UST(I)*UST(I)/G+OZO                                   
+! Since V3.7 (ref: EC Physics document for Cy36r1)
+          ZNT(I)=CZO*UST(I)*UST(I)/G+0.11*1.5E-5/UST(I)
+! COARE 3.5 (Edson et al. 2013)
+!         CZC = 0.0017*WSPD(I)-0.005
+!         CZC = min(CZC,0.028)
+!         ZNT(I)=CZC*UST(I)*UST(I)/G+0.11*1.5E-5/UST(I)
 ! AHW: change roughness length, and hence the drag coefficients Ck and Cd
           IF ( PRESENT(ISFTCFLX) ) THEN
              IF ( ISFTCFLX.NE.0 ) THEN
 !               ZNT(I)=10.*exp(-9.*UST(I)**(-.3333))
 !               ZNT(I)=10.*exp(-9.5*UST(I)**(-.3333))
 !               ZNT(I)=ZNT(I) + 0.11*1.5E-5/AMAX1(UST(I),0.01)
-                ZNT(I)=0.011*UST(I)*UST(I)/G+OZO
-                ZNT(I)=MIN(ZNT(I),2.85e-3)
-!               ZNT(I)=MAX(ZNT(I),1.27e-7)
+!               ZNT(I)=0.011*UST(I)*UST(I)/G+OZO
 !               ZNT(I)=MAX(ZNT(I),3.50e-5)
+! AHW 2012:
+                ZW  = MIN((UST(I)/1.06)**(0.3),1.0)
+                ZN1 = 0.011*UST(I)*UST(I)/G + OZO
+                ZN2 = 10.*exp(-9.5*UST(I)**(-.3333)) + &
+                       0.11*1.5E-5/AMAX1(UST(I),0.01)
+                ZNT(I)=(1.0-ZW) * ZN1 + ZW * ZN2
+                ZNT(I)=MIN(ZNT(I),2.85e-3)
+                ZNT(I)=MAX(ZNT(I),1.27e-7)
              ENDIF
           ENDIF
           ZL = ZNT(I)
@@ -829,12 +883,12 @@ CONTAINS
       DO 400 I=its,ite
         IF(XLAND(I)-1.5.GT.0.)THEN                                           
           HFX(I)=FLHC(I)*(THGB(I)-THX(I))                                
-          IF ( PRESENT(ISFTCFLX) ) THEN
-             IF ( ISFTCFLX.NE.0 ) THEN
-! AHW: add dissipative heating term
-                HFX(I)=HFX(I)+RHOX(I)*USTM(I)*USTM(I)*WSPDI(I)
-             ENDIF
-          ENDIF
+!         IF ( PRESENT(ISFTCFLX) ) THEN
+!            IF ( ISFTCFLX.NE.0 ) THEN
+! AHW: add dissipative heating term (commented out in 3.6.1)
+!               HFX(I)=HFX(I)+RHOX(I)*USTM(I)*USTM(I)*WSPDI(I)
+!            ENDIF
+!         ENDIF
         ELSEIF(XLAND(I)-1.5.LT.0.)THEN                                       
           HFX(I)=FLHC(I)*(THGB(I)-THX(I))                                
           HFX(I)=AMAX1(HFX(I),-250.)                                       
