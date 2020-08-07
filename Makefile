@@ -561,6 +561,8 @@ chemics :
 physics :
 	@ echo '--------------------------------------'
 	( cd phys ; $(MAKE)  $(J) )
+	@ echo '----------- make cmaq ----------------'
+	( rm -f main/libcmaqlib.a; cd cmaq ; $(MAKE) -f Makefile.twoway )
 
 em_core :
 	@ echo '--------------------------------------'

@@ -8248,6 +8248,7 @@
 
 ! Clear-sky optical parameters including aerosols
                ztauc(jk) = ztaur(ikl,iw) + ztaug(ikl,iw) + ptaua(ikl,ibm)
+
                zomcc(jk) = ztaur(ikl,iw) * 1.0_rb + ptaua(ikl,ibm) * pomga(ikl,ibm)
                zgcc(jk) = pasya(ikl,ibm) * pomga(ikl,ibm) * ptaua(ikl,ibm) / zomcc(jk)
                zomcc(jk) = zomcc(jk) / ztauc(jk)
@@ -8548,6 +8549,7 @@
 ! --------- Add the following four compenants for ssib shortwave down radiation ---!
 ! -------------------      by Zhenxin 2011-06-20      --------------------------------!
              sibvisdir, sibvisdif, sibnirdir, sibnirdif          &
+             ,sw_zbbcddir, sw_dirdflux, sw_difdflux              &
                                                                 )
 ! ----------------------  End,  Zhenxin 2011-06-20    --------------------------------!
 
@@ -8765,6 +8767,10 @@
                                                       !    Dimensions: (ncol,nlay+1)
       real(kind=rb), intent(out) :: swhrc(:,:)        ! Clear sky shortwave radiative heating rate (K/d)
                                                       !    Dimensions: (ncol,nlay)
+
+      real(kind=rb), intent(out) :: sw_zbbcddir,   &  ! WRF_CMAQ twoway model
+                                    sw_dirdflux,   &  ! WRF_CMAQ twoway model
+                                    sw_difdflux       ! WRF_CMAQ twoway model
 
 ! ----- Local -----
 
@@ -9194,6 +9200,10 @@
 ! End longitude loop
       enddo
 
+      sw_zbbcddir = zbbcddir(1)
+      sw_dirdflux = dirdflux(1)
+      sw_difdflux = difdflux(1)
+
       end subroutine rrtmg_sw
 
 !*************************************************************************
@@ -9618,6 +9628,8 @@ CONTAINS
                        ims,ime, jms,jme, kms,kme,                 &
                        its,ite, jts,jte, kts,kte,                 &
                        swupflx, swupflxc, swdnflx, swdnflxc       &
+                       ,sw_zbbcddir                               & ! WRF_CMAQ twoway model
+                       ,sw_dirdflux, sw_difdflux                  & ! WRF_CMAQ twoway model
                                                                   )
 !------------------------------------------------------------------
    IMPLICIT NONE
@@ -9712,6 +9724,10 @@ CONTAINS
    INTEGER,    INTENT(IN  ), OPTIONAL   ::       aer_ra_feedback
 !jdfcz   INTEGER,    INTENT(IN  ), OPTIONAL   ::       progn,prescribe
    INTEGER,    INTENT(IN  ), OPTIONAL   ::       progn
+
+   REAL, DIMENSION( ims:ime, jms:jme ), INTENT(OUT)  ::  sw_zbbcddir,   & ! WRF_CMAQ twoway model
+                                                         sw_dirdflux,   & ! WRF_CMAQ twoway model
+                                                         sw_difdflux      ! WRF_CMAQ twoway model
 
       !wavelength corresponding to wavenum1 and wavenum2 (cm-1)
       real, save :: wavemin(nbndsw) ! Min wavelength (um) of 14 intervals
@@ -10471,6 +10487,8 @@ CONTAINS
              swuflx  ,swdflx  ,swhr    ,swuflxc ,swdflxc ,swhrc, &
 ! -----          Zhenxin added for ssib coupiling 2011-06-20 --------!
              sibvisdir, sibvisdif, sibnirdir, sibnirdif          &
+             ,sw_zbbcddir(i,j)                                   &
+             ,sw_dirdflux(i,j), sw_difdflux(i,j)                 &
                                                         )
 ! --------------------   End of addiation by Zhenxin 2011-06-20 ------!
 

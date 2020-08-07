@@ -84,3 +84,9 @@ dimspec    tz      -     namelist=track_tuv_lev            c     track_tuv_lev
 
 endif
 dimspec    tl      -     namelist=track_loc_in             c     track_loc_in
+
+# =s= WRF-CMAQ twoway coupled model
+dimspec    nmode  -     constant=3                c          nmode
+dimspec    nspect -     constant=19               c          nspectrums
+dimspec    naespc -     constant=43               c          n_aerosol_species
+# =e= WRF-CMAQ twoway coupled model

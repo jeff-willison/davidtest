@@ -481,17 +481,18 @@
     call wrf_get_dom_ti_integer(fid, "NUM_LAND_CAT", num_land_cat_compare, 1, icnt, ierr)
     if ( (ierr .NE. 0) .OR. ( num_land_cat_compare .LT. 1 ) .OR. ( num_land_cat_compare .GT. 1000 ) ) then
        call wrf_debug( 1 , "Must be old WPS data, assuming 24 levels for NUM_LAND_CAT")
-       num_land_cat_compare = 24
+!      num_land_cat_compare = 24
+       num_land_cat_compare = config_flags%num_land_cat
 !      call wrf_error_fatal("Error trying to find global attribute 'NUM_LAND_CAT'")
     endif
-    if ( config_flags%num_land_cat /= num_land_cat_compare ) then
+!   if ( config_flags%num_land_cat /= num_land_cat_compare ) then
     !  call wrf_message("----------------- ERROR -------------------")
     !   WRITE(wrf_err_message,'("namelist    : NUM_LAND_CAT = ",I10)') config_flags%num_land_cat
     !   call wrf_message(wrf_err_message)
     !   WRITE(wrf_err_message,'("input files : NUM_LAND_CAT = ",I10, " (from geogrid selections).")') num_land_cat_compare
     !   call wrf_message(wrf_err_message)
     !   call wrf_error_fatal("Mismatch between namelist and wrf input files for dimension NUM_LAND_CAT")
-    endif
+!   endif
 
     ! Test here to check that config_flags%num_metgrid_soil_levels in namelist
     ! is equal to what is in the global attributes of the met_em files.  Note that

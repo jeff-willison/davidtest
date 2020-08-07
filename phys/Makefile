@@ -6,6 +6,7 @@ RM      =       rm -f
 
 
 MODULES = \
+	module_twoway_rrtmg_aero_optical_util.o \
 	module_cam_shr_kind_mod.o \
 	module_cam_support.o \
 	module_cam_shr_const_mod.o \
@@ -71,6 +72,7 @@ MODULES = \
 	module_ra_rrtm.o  \
 	module_ra_rrtmg_lw.o  \
 	module_ra_rrtmg_sw.o  \
+	module_twoway_ra_rrtmg_sw.o \
         module_ra_cam_support.o \
         module_ra_cam.o \
 	module_ra_gfdleta.o \
@@ -383,9 +385,11 @@ module_sf_ruclsm.o: ../frame/module_wrf_error.o module_data_gocart_dust.o
 
 module_sf_pxlsm.o: ../share/module_model_constants.o module_sf_pxlsm_data.o
 
+module_twoway_ra_rrtmg_sw.o: module_ra_rrtmg_sw.o module_twoway_rrtmg_aero_optical_util.o
+
 module_ra_rrtmg_sw.o: module_ra_rrtmg_lw.o
 
-module_ra_rrtmg_lw.o: ../share/module_model_constants.o
+module_ra_rrtmg_lw.o: ../share/module_model_constants.o module_twoway_rrtmg_aero_optical_util.o
 
 module_physics_addtendc.o: \
 		module_cu_kf.o			\
@@ -548,6 +552,7 @@ module_radiation_driver.o: \
 		module_ra_rrtm.o \
 		module_ra_rrtmg_lw.o \
 		module_ra_rrtmg_sw.o \
+		module_twoway_ra_rrtmg_sw.o \
 		module_ra_cam.o \
 		module_ra_gfdleta.o \
 		module_ra_HWRF.o \

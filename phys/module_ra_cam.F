@@ -3,6 +3,7 @@ MODULE module_ra_cam
   use module_cam_support, only: endrun
 
   implicit none
+
 ! 
 ! A. Slingo's data for cloud particle radiative properties (from 'A GCM
 ! Parameterization for the Shortwave Properties of Water Clouds' JAS
@@ -357,7 +358,6 @@ subroutine camrad(RTHRATENLW,RTHRATENSW,                           &
          INTENT(IN   ) ::                                            &
                                                           F_ICE_PHY, &
                                                          F_RAIN_PHY
-
 
 ! LOCAL VARIABLES
  
@@ -1464,7 +1464,7 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
                   fsns    ,fsnt    ,flns    ,flnt    , &
                   qrs     ,qrl     ,flwds   ,rel     ,rei     , &
                   sols    ,soll    ,solsd   ,solld   , &
-                  landfrac,zm      ,fsds     )
+                  landfrac,zm      ,fsds)
 !----------------------------------------------------------------------- 
 ! 
 ! Purpose: 
@@ -1645,7 +1645,6 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
    real(r8) aerosol(pcols, pver, naer_all) ! aerosol mass mixing ratios
    real(r8) scales(naer_all)               ! scaling factors for aerosols
 
-
 !
 ! Interpolate ozone volume mixing ratio to model levels
 !
@@ -1702,6 +1701,7 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
          call aerosol_indirect(ncol,lchnk,pcols,pver,ppcnst,landfrac,pmid,t,qm1,cld,zm,rel)
    
 !        call t_startf('radcswmx_rf')
+
          call radcswmx(j, lchnk   ,ncol ,pcols, pver, pverp,         &
                     pnm     ,pbr     ,qm1     ,rh      ,o3mmr   , &
                     aerosol ,cld     ,cicewp  ,cliqwp  ,rel     , &
@@ -1714,6 +1714,7 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
                     solsd   ,solld   ,frc_day ,                   &
                     fsup    ,fsupc   ,fsdn    ,fsdnc   ,          &
                     aertau  ,aerssa  ,aerasm  ,aerfwd             )
+
 !        call t_stopf('radcswmx_rf')
 
 !
@@ -1762,6 +1763,7 @@ subroutine radctl(j, lchnk   ,ncol    , pcols, pver, pverp, pverr, pverrp, ppcns
                     solsd   ,solld   ,frc_day ,                   &
                     fsup    ,fsupc   ,fsdn    ,fsdnc   ,          &
                     aertau  ,aerssa  ,aerasm  ,aerfwd             )
+
 !     call t_stopf('radcswmx')
 
 ! -- tls ---------------------------------------------------------------2

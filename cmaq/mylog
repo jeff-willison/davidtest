@@ -1,0 +1,140 @@
+twoway_aqprep.F90:!           meteorologically dependent emissions and chemical transport
+twoway_aqprep.F90:  USE twoway_met_param_module
+twoway_aqprep.F90:  LOGICAL, PARAMETER            :: def_false = .false.
+twoway_aqprep.F90:  REAL,    PARAMETER            :: gravi = 1 / g
+twoway_aqprep.F90:  CHARACTER( 2 ) :: COLROW = 'CR'  ! col/row arg list order for pio_re_init
+twoway_aqprep.F90:  CHARACTER (LEN = 16), PARAMETER :: pname = 'aq_prep         '
+twoway_aqprep.F90:  CHARACTER (LEN = 16) :: fname, pfname
+twoway_aqprep.F90:! metcro3d temporary storage
+twoway_aqprep.F90:! metdot3d temporary storage
+twoway_aqprep.F90:! metcro2d temporary storage
+twoway_aqprep.F90:! real, allocatable, save :: previous_rain_rec(:,:,:)
+twoway_aqprep.F90:    character (len = 50) :: myfmt
+twoway_aqprep.F90:!   character (len = 4), save :: pe_str
+twoway_aqprep.F90:    logical, parameter :: debug = .true.
+twoway_aqprep.F90:    character (len = 2), save :: data_ori = 'cr'
+twoway_aqprep.F90:                             cfrac, cldb, cldt, wbar)
+twoway_aqprep.F90:        REAL,          INTENT(OUT)   :: cfrac      ( : , : )
+twoway_aqprep.F90:! Note:  Not sure how lateral boundary cells (formerly found in METBDY3D) are
+twoway_aqprep.F90:     call mpi_comm_rank (mpi_comm_world, twoway_mype, stat)
+twoway_aqprep.F90:! Allocate arrays for CCTM...to mimic MCIP output arrays.
+twoway_aqprep.F90:        print *, ' Error: Allocating communication indices arrays'
+twoway_aqprep.F90:! Fill time-independent arrays for GRIDCRO2D and GRIDDOT2D.
+twoway_aqprep.F90:        write (vname3d(v+n_gridcro2d_var), '(a7, i2.2)') 'LUFRAC_', v
+twoway_aqprep.F90:        units3d(v+n_gridcro2d_var) = 'FRACTION'
+twoway_aqprep.F90:! this is particular for m3dry LUFRAC_01
+twoway_aqprep.F90:    ! Fill scalar-point arrays of latitude (LAT), longitude (LON), terrain
+twoway_aqprep.F90:    ! elevation (HT), land-water mask (LWMASK), and fractional land use (LUFRAC)
+twoway_aqprep.F90:    ! directly from WRF arrays.
+twoway_aqprep.F90:    !        directly from a WRF array, are needed in the UHAT_JD and VHAT_JD
+twoway_aqprep.F90:! Fill time-dependent arrays for METCRO3D.
+twoway_aqprep.F90:        ! Fill "required" 3D scalar-point arrays of temperature (TA), water
+twoway_aqprep.F90:        ! vapor mixing ratio (QV), pressure (PRES), density (DENS), density
+twoway_aqprep.F90:        ! (DZF), cloud mixing ratio (QC), and rain water mixing ratio (QR)
+twoway_aqprep.F90:        ! directly from WRF arrays.
+twoway_aqprep.F90:        !        because they are not output in some configurations of the
+twoway_aqprep.F90:        !        this routine is called and make them required rather than
+twoway_aqprep.F90:        ! Note:  None of the full-level arrays are dimensioned to full levels.
+twoway_aqprep.F90:        !        All arrays are filled using CMAQ's (:,:,0:nlays) convention.
+twoway_aqprep.F90:        !        PRESF(:,:0) is PRSFC, which is filled in the 2D arrays.
+twoway_aqprep.F90:        ! Fill "optional" moisture variables:  ice mixing ratio (QI), snow
+twoway_aqprep.F90:        ! mixing ratio (QS), and graupel mixing ratio (QG).
+twoway_aqprep.F90:        ! Note:  In QF calculation, use "raw" WRF variable QV_CURR_WRF instead
+twoway_aqprep.F90:           metcro3d_data_wrf (c,r,kk,1) = gravi * grid%mut(ii,jj) / (densf * gridcro2d_data_wrf (c,r,3))   ! calculate jacobf
+twoway_aqprep.F90:           metcro3d_data_wrf (c,r,kk,2) = gravi * grid%mut(ii,jj) / (metcro3d_data_wrf(c,r,kk,12) * gridcro2d_data_wrf (c,r,3))
+twoway_aqprep.F90:           metcro3d_data_wrf(c,r,kk,3) = gravi * grid%mut(ii,jj) / gridcro2d_data_wrf (c,r,3)
+twoway_aqprep.F90:! Fill time-dependent arrays in METDOT3D.
+twoway_aqprep.F90:  ! Fill UWINDC and VWINDC directly from WRF arrays.
+twoway_aqprep.F90:  !        they are on the Arakawa C staggering, not the Arakawa B staggering
+twoway_aqprep.F90:           jdenm  (c,r) = gravi * grid%mut(ii,jj) / grid%msftx (ii,jj)
+twoway_aqprep.F90:    !        deliberate in UHAT_JD and VHAT_JD calculations.  Original code in
+twoway_aqprep.F90:! Fill time-dependent arrays for METCRO2D.
+twoway_aqprep.F90:  ! heat flux (HFX), aerodynamic resistance (RA), stomatal resistance (RS),
+twoway_aqprep.F90:  ! ground temperature (TEMPG), shortwave radiation (GSW), accumulated
+twoway_aqprep.F90:  ! (RCA), snow cover flag (SNOCOV), leaf area index (LAI), 2-m temperature
+twoway_aqprep.F90:  ! (TEMP2), and canopy moisture content (WR) directly from WRF arrays.
+twoway_aqprep.F90:  ! Note:  RA and RS are the reciprocals of RADYNI and RSTOMI, respectively.
+twoway_aqprep.F90:  !        RA and RS are directly available in WRF, and they are actually
+twoway_aqprep.F90:  !        used in CMAQ, rather than the reciprocals RADYNI and RSTOMI, which
+twoway_aqprep.F90:  !        steps in two-way model to compute rainfall rates needed in CMAQ.
+twoway_aqprep.F90:  ! Note:  For rainfall:  biogenics code uses cm/h, CMAQ ultimately needs mm/h.
+twoway_aqprep.F90:  metcro2d_data_wrf  (:,:,8) =  grid%ra    (sc:ec, sr:er)   ! RA = 1/RADNYI
+twoway_aqprep.F90:  metcro2d_data_wrf  (:,:,9) =  grid%rs    (sc:ec, sr:er)   ! RA = 1/RSTOMI
+twoway_aqprep.F90:  metcro2d_data_wrf (:,:,13) =  (grid%rainnc(sc:ec, sr:er) - grid%prev_rainnc(sc:ec,sr:er)) * 0.1  ! RNA = SUM(RN), in cm
+twoway_aqprep.F90:  metcro2d_data_wrf (:,:,14) =  (grid%rainc (sc:ec, sr:er) - grid%prev_rainc(sc:ec,sr:er)) * 0.1   ! RCA = SUM(RC), in cm
+twoway_aqprep.F90:  ! Assign surface pressure (PRSFC) from WRF array P8W (i.e., "p at w levels").
+twoway_aqprep.F90:  ! Compute solar radiation reaching the ground (RGRND) from ALBEDO and GSW.
+twoway_aqprep.F90:  ! Compute vegetation coverage (VEG) by converting WRF variable VEGFRA from
+twoway_aqprep.F90:     metcro2d_data_wrf     (:,:,20) =  grid%vegfra (sc:ec, sr:er) * 0.01  ! veg
+twoway_aqprep.F90:  ! Compute total cloud fraction (CFRAC), cloud top layer height (CLDT), 
+twoway_aqprep.F90:  ! cloud bottom layer height (CLDB), and average liquid water content of
+twoway_aqprep.F90:  CHARACTER*16                 :: coordnam_gd
+twoway_aqprep.F90:  CHARACTER*16                 :: vgtpun_gd
+twoway_aqprep.F90:  CHARACTER*16                 :: vglvun_gd
+twoway_aqprep.F90:    CASE (2)  ! polar stereographic
+twoway_aqprep.F90:!        0.5*DY.  (This may not be a universal assumption, but it is a practical
+twoway_aqprep.F90:!                        to average of true latitudes for Lambert conformal.
+twoway_aqprep.F90:!                        But average of true latiudes for tangent Lambert
+twoway_aqprep.F90:  REAL,          PARAMETER     :: phitol  = 0.001  ! tolerance [deg]
+twoway_aqprep.F90:  CHARACTER*16,  PARAMETER     :: pname   = 'LL2XY_LAM'
+twoway_aqprep.F90:  REAL, PARAMETER              :: rearth = 6370000.0  ! [m]
+twoway_aqprep.F90:  REAL(8)                      :: deg2rad ! convert degrees to radians
+twoway_aqprep.F90:  REAL(8)                      :: drearth ! double-precision radius of earth [m]
+twoway_aqprep.F90:  REAL(8)                      :: phirad  ! latitude [rad]
+twoway_aqprep.F90:  REAL(8)                      :: phi0rad ! reference latitude [rad]
+twoway_aqprep.F90:  REAL(8)                      :: phi1rad ! true latitude 1 [rad]
+twoway_aqprep.F90:  REAL(8)                      :: phi2rad ! true latitude 2 [rad]
+twoway_aqprep.F90:  REAL(8)                      :: rho     ! polar radius to latitude phi
+twoway_aqprep.F90:  REAL(8)                      :: rho0    ! polar radius to origin
+twoway_aqprep.F90:  deg2rad = pi / 1.8d2
+twoway_aqprep.F90:  phi0rad = DBLE(phi0) * deg2rad  ! convert PHI0 from degrees to radians
+twoway_aqprep.F90:  phi1rad = DBLE(phi1) * deg2rad  ! convert PHI1 from degrees to radians
+twoway_aqprep.F90:  phi2rad = DBLE(phi2) * deg2rad  ! convert PHI2 from degrees to radians
+twoway_aqprep.F90:  term0 = DTAN (piover4 - phi0rad/2.0d0)
+twoway_aqprep.F90:  term1 = DTAN (piover4 - phi1rad/2.0d0)
+twoway_aqprep.F90:  term2 = DTAN (piover4 - phi2rad/2.0d0)
+twoway_aqprep.F90:  sinphi0 = DLOG ( DCOS(phi1rad) / DCOS(phi2rad) )
+twoway_aqprep.F90:  dlambda = DBLE(lambda - lambda0) * deg2rad
+twoway_aqprep.F90:! Compute polar radius to origin, RHO0, where origin is at PHI0.
+twoway_aqprep.F90:  psi  = drearth * DCOS(phi1rad) / sinphi0 / (term1**sinphi0)
+twoway_aqprep.F90:! Compute polar radius to latitude PHI, RHO.
+twoway_aqprep.F90:  phirad = DBLE(phi) * deg2rad  ! convert PHI from degrees to radians
+twoway_aqprep.F90:  term   = DTAN (piover4 - phirad/2.0d0)
+twoway_aqprep.F90:! Name:     Latitude-Longitude to (X,Y) for Polar Stereographic Projection
+twoway_aqprep.F90:!           and polar stereographic projection information.
+twoway_aqprep.F90:  REAL, PARAMETER              :: rearth = 6370000.0  ! [m]
+twoway_aqprep.F90:  REAL(8)                      :: deg2rad ! convert degrees to radians
+twoway_aqprep.F90:  REAL(8)                      :: drearth ! earth radius [m]
+twoway_aqprep.F90:  REAL(8)                      :: phirad  ! latitude [rad]
+twoway_aqprep.F90:  REAL(8)                      :: phi1rad ! true latitude 1 [rad]
+twoway_aqprep.F90:  deg2rad = pi / 1.8d2
+twoway_aqprep.F90:  phi1rad = DBLE(phi1) * deg2rad  ! convert PHI1 from degrees to radians
+twoway_aqprep.F90:  phirad  = DBLE(phi)  * deg2rad  ! convert PHI  from degrees to radians
+twoway_aqprep.F90:!!!TLO  sigma   = (1.0d0 + DSIN(phi1rad)) / (1.0d0 + DSIN(pi))  ! at pole
+twoway_aqprep.F90:  sigma   = (1.0d0 + DSIN(phi1rad)) / 2.0d0 * hemi
+twoway_aqprep.F90:  tt = DTAN ( piover4 - phirad/2.0d0)
+twoway_aqprep.F90:  theta = DBLE(lambda - lambda0) * deg2rad
+twoway_aqprep_util.F90:                       cfrac, cldb, cldt, wbar)
+twoway_aqprep_util.F90:!           water content and fractional area of cloud coverage using JEP H54 
+twoway_aqprep_util.F90:!           27 Oct 1995  Modified.  (C. Ingram)
+twoway_aqprep_util.F90:!           27 Feb 2002  Corrected bug that persisted cloud base arrays when
+twoway_aqprep_util.F90:!           08 Jul 2004  Changed local array allocation to occur only on
+twoway_aqprep_util.F90:!                        fragmentation.  Removed XFLAGS.  (T. Otte)
+twoway_aqprep_util.F90:!                        array.  Changed constants to WRF-based names (and
+twoway_aqprep_util.F90:  REAL,          INTENT(OUT)   :: cfrac      ( : , : )
+twoway_aqprep_util.F90:  REAL                         :: frac
+twoway_aqprep_util.F90:  REAL,          PARAMETER     :: mvoma      = 0.622
+twoway_aqprep_util.F90:! REAL,          PARAMETER     :: vp0        = svp1 * 1000.0  ! cb -> Pa
+twoway_aqprep_util.F90:  ! Saturation vapor pressure [Pa]
+twoway_aqprep_util.F90:  cfrac (:,:) = 0.0
+twoway_aqprep_util.F90:! Loop over grid points to compute cloud parameters.
+twoway_aqprep_util.F90:      ! Compute cloud coverage.
+twoway_aqprep_util.F90:            ! CBL mixing induced clouds should not exceed the frac area of 
+twoway_aqprep_util.F90:            ! the updrafts at top of cbl, les estimates are ~34%
+twoway_aqprep_util.F90:      ! Locate cloud top and cloud bottom, and compute average liquid water
+twoway_aqprep_util.F90:      frac  = 0.0
+twoway_aqprep_util.F90:        ! Determine water content by fraction of adiabatic.
+twoway_aqprep_util.F90:        frac  = frac + ccov(k) * dzf(c,r,k)
+twoway_aqprep_util.F90:      cfrac(c,r) = frac  / sumz
+twoway_aqprep_util.F90:      IF ( cfrac(c,r) < 0.001 ) THEN
+twoway_aqprep_util.F90:        cfrac(c,r) = 0.0

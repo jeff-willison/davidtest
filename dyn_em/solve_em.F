@@ -108,6 +108,22 @@ SUBROUTINE solve_em ( grid , config_flags  &
 
    LOGICAL                         :: specified_bdy, channel_bdy
 
+! =s= WRF-CMAQ twoway coupled model
+   integer, save                   :: cmaq_sdate, cmaq_stime, cmaq_nstep, wrf_end_step
+   integer                         :: twoway_jdate, twoway_jtime
+   logical, save                   :: firstime = .true.
+   logical, save                   :: feedback_is_ready = .false.
+
+   LOGICAL, EXTERNAL               :: ENVYN
+   INTEGER, EXTERNAL               :: ENVINT
+   LOGICAL, SAVE                   :: WRF_RESTART, RUN_CMAQ_DRIVER, CREATE_PHYSICAL_FILE
+   LOGICAL, SAVE                   :: CMAQ_WRF_FEEDBACK
+   LOGICAL                         :: CMAQ_STEP
+   INTEGER                         :: STATUS
+   INTEGER, SAVE                   :: COUNTER = -1
+   INTEGER, SAVE                   :: WRF_CMAQ_FREQ
+! =e= WRF-CMAQ twoway coupled model
+
    REAL                            :: t_new
    
    ! Changes in tendency at this timestep
@@ -675,6 +691,7 @@ BENCH_END(set_phys_bc_tim)
                              , ipsy, ipey, jpsy, jpey, kpsy, kpey    &
                              , k_start , k_end                  &
                              , f_flux                           &
+                             , feedback_is_ready=feedback_is_ready    &     ! WRF-CMAQ twoway coupled model
                             )
 
 #ifdef DM_PARALLEL
@@ -4008,6 +4025,116 @@ BENCH_END(bc_2d_tim)
 
 ! Finish timers if compiled with -DBENCH.
 #include <bench_solve_em_end.h>
+
+! =s= WRF-CMAQ twoway coupled model
+    COUNTER = COUNTER + 1
+
+    if (firstime) then
+
+       WRF_RESTART = ENVYN('WRF_RSTFLAG', ' ', .FALSE., STATUS)
+
+       CREATE_PHYSICAL_FILE = ENVYN( 'CREATE_PHYSICAL_FILE', ' ', .FALSE., STATUS )
+
+       WRF_CMAQ_FREQ = ENVINT( 'WRF_CMAQ_FREQ', ' ', 1, STATUS )
+
+       RUN_CMAQ_DRIVER = ENVYN( 'RUN_CMAQ_DRIVER', ' ', .FALSE., STATUS )
+       IF ( STATUS .EQ. 1 ) THEN
+          PRINT *, 'Environment variable improperly formatted'
+          STOP
+       ELSE IF ( STATUS .EQ. -1 ) THEN
+          PRINT *, 'Environment variable set, but empty ... Using default:'
+       ELSE IF ( STATUS .EQ. -2 ) THEN
+          PRINT *, 'Environment variable not set ... Using default:'
+       END IF
+
+       CMAQ_WRF_FEEDBACK = ENVYN( 'CMAQ_WRF_FEEDBACK', ' ', .FALSE., STATUS )
+       IF ( STATUS .EQ. 1 ) THEN
+          PRINT *, 'Environment variable improperly formatted'
+          STOP
+       ELSE IF ( STATUS .EQ. -1 ) THEN
+          PRINT *, 'Environment variable set, but empty ... Using default:'
+       ELSE IF ( STATUS .EQ. -2 ) THEN
+          PRINT *, 'Environment variable not set ... Using default:'
+       END IF
+
+       if (RUN_CMAQ_DRIVER) then
+          cmaq_sdate = ENVINT( 'CTM_STDATE', ' ', 0, STATUS )
+
+          cmaq_stime = ENVINT( 'CTM_STTIME', ' ', 0, STATUS )
+
+          cmaq_nstep = ((grid%run_days * 24 + grid%run_hours) * 3600 + grid%run_minutes * 60 + grid%run_seconds) / &
+                       (grid%time_step * WRF_CMAQ_FREQ)
+
+          wrf_end_step = cmaq_nstep * WRF_CMAQ_FREQ - 1
+       end if
+
+    end if
+
+    if ( .not. WRF_RESTART .and. firstime) then
+       grid%prev_rainnc = 0.0
+       grid%prev_rainc  = 0.0
+       firstime = .false.
+    end if
+
+    if (RUN_CMAQ_DRIVER .or. CREATE_PHYSICAL_FILE) then
+       CMAQ_STEP = (mod(COUNTER, WRF_CMAQ_FREQ) .EQ. 0)
+
+       if (CMAQ_STEP) then
+          CALL aqprep (grid, config_flags, grid%t_phy, p_phy, rho,  &
+                       grid%z_at_w, dz8w, p8w, t8w,                 &
+                       model_config_rec%num_land_cat,               &
+                       ids, ide, jds, jde, kds, kde,                &
+                       ims, ime, jms, jme, kms, kme,                &
+                       ips, ipe, jps, jpe, kps, kpe,                &
+                       moist(:,:,:,p_qv),                           &  ! optional
+                       moist(:,:,:,p_qc),                           &  ! optional
+                       moist(:,:,:,p_qr),                           &  ! optional
+                       moist(:,:,:,p_qi),                           &  ! optional
+                       moist(:,:,:,p_qs),                           &  ! optional
+                       moist(:,:,:,p_qg)                            &  ! optional
+                      )
+          grid%prev_rainnc = grid%rainnc
+          grid%prev_rainc  = grid%rainc
+       end if
+
+       if ((counter >= 1) .and. (CMAQ_STEP) .and. RUN_CMAQ_DRIVER) then
+
+          CALL CMAQ_DRIVER (cmaq_sdate, cmaq_stime, grid%time_step*WRF_CMAQ_FREQ, &
+                            cmaq_nstep, twoway_jdate, twoway_jtime)
+
+          if (CMAQ_WRF_FEEDBACK) then
+             CALL FEEDBACK_READ (grid, twoway_jdate, twoway_jtime)
+             feedback_is_ready = .true.
+          end if
+
+       end if
+
+! call aqprep and cmaq one last time before the entire twoway model ends
+       if (wrf_end_step == counter) then
+          CALL aqprep (grid, config_flags, grid%t_phy, p_phy, rho,  &
+                       grid%z_at_w, dz8w, p8w, t8w,                 &
+                       model_config_rec%num_land_cat,               &
+                       ids, ide, jds, jde, kds, kde,                &
+                       ims, ime, jms, jme, kms, kme,                &
+                       ips, ipe, jps, jpe, kps, kpe,                &
+                       moist(:,:,:,p_qv),                           &  ! optional
+                       moist(:,:,:,p_qc),                           &  ! optional
+                       moist(:,:,:,p_qr),                           &  ! optional
+                       moist(:,:,:,p_qi),                           &  ! optional
+                       moist(:,:,:,p_qs),                           &  ! optional
+                       moist(:,:,:,p_qg)                            &  ! optional
+                      )
+
+          if (RUN_CMAQ_DRIVER) then
+             CALL CMAQ_DRIVER (cmaq_sdate, cmaq_stime, grid%time_step*WRF_CMAQ_FREQ, &
+                               cmaq_nstep, twoway_jdate, twoway_jtime)
+          end if
+
+       end if
+
+    end if
+
+! =e= WRF-CMAQ twoway coupled model
 
    RETURN
 

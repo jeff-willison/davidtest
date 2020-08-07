@@ -110,6 +110,62 @@ CONTAINS
               ,ALSWVISDIR, ALSWVISDIF, ALSWNIRDIR, ALSWNIRDIF             & !fds ssib alb comp (06/2010)
               ,SWVISDIR, SWVISDIF, SWNIRDIR, SWNIRDIF                     & !fds ssib swr comp (06/2010)
               ,SF_SURFACE_PHYSICS                                         & !fds
+              ,mass_ws_i                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_ws_j                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_ws_k                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_in_i                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_in_j                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_in_k                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_ec_i                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_ec_j                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_ec_k                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_ss_i                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_ss_j                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_ss_k                     &     ! WRF-CMAQ twoway coupled model
+              ,mass_h2o_i                    &     ! WRF-CMAQ twoway coupled model
+              ,mass_h2o_j                    &     ! WRF-CMAQ twoway coupled model
+              ,mass_h2o_k                    &     ! WRF-CMAQ twoway coupled model
+              ,dgn_i                         &     ! WRF-CMAQ twoway coupled model
+              ,dgn_j                         &     ! WRF-CMAQ twoway coupled model
+              ,dgn_k                         &     ! WRF-CMAQ twoway coupled model
+              ,sig_i                         &     ! WRF-CMAQ twoway coupled model
+              ,sig_j                         &     ! WRF-CMAQ twoway coupled model
+              ,sig_k                         &     ! WRF-CMAQ twoway coupled model
+              ,sw_gtauxar_01                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_gtauxar_02                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_gtauxar_03                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_gtauxar_04                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_gtauxar_05                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_ttauxar_01                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_ttauxar_02                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_ttauxar_03                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_ttauxar_04                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_ttauxar_05                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_asy_fac_01                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_asy_fac_02                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_asy_fac_03                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_asy_fac_04                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_asy_fac_05                 &     ! WRF-CMAQ twoway coupled model
+              ,sw_ssa_01                     &     ! WRF-CMAQ twoway coupled model
+              ,sw_ssa_02                     &     ! WRF-CMAQ twoway coupled model
+              ,sw_ssa_03                     &     ! WRF-CMAQ twoway coupled model
+              ,sw_ssa_04                     &     ! WRF-CMAQ twoway coupled model
+              ,sw_ssa_05                     &     ! WRF-CMAQ twoway coupled model
+              ,lw_gtauxar_01                 &     ! WRF-CMAQ twoway coupled model
+              ,lw_gtauxar_02                 &     ! WRF-CMAQ twoway coupled model
+              ,lw_gtauxar_03                 &     ! WRF-CMAQ twoway coupled model
+              ,lw_gtauxar_04                 &     ! WRF-CMAQ twoway coupled model
+              ,lw_gtauxar_05                 &     ! WRF-CMAQ twoway coupled model
+              ,lw_ttauxar_01                 &     ! WRF-CMAQ twoway coupled model
+              ,lw_ttauxar_02                 &     ! WRF-CMAQ twoway coupled model
+              ,lw_ttauxar_03                 &     ! WRF-CMAQ twoway coupled model
+              ,lw_ttauxar_04                 &     ! WRF-CMAQ twoway coupled model
+              ,lw_ttauxar_05                 &     ! WRF-CMAQ twoway coupled model
+              ,feedback_is_ready             &     ! WRF-CMAQ twoway coupled model
+              ,ozone                         &     ! WRF-CMAQ twoway coupled model
+              ,sw_zbbcddir                   &     ! WRF-CMAQ twoway coupled model
+              ,sw_dirdflux                   &     ! WRF-CMAQ twoway coupled model
+              ,sw_difdflux                   &     ! WRF-CMAQ twoway coupled model
                                                                           )
 
 
@@ -135,10 +191,14 @@ CONTAINS
 
 ! *** add new modules of schemes here
 
+! =s= WRF-CMAQ twoway coupled model
+   USE module_twoway_ra_rrtmg_sw
+! =e= WRF-CMAQ twoway coupled model
+
    USE module_ra_sw         , ONLY : swrad
    USE module_ra_gsfcsw     , ONLY : gsfcswrad
    USE module_ra_rrtm       , ONLY : rrtmlwrad
-   USE module_ra_rrtmg_lw   , ONLY : rrtmg_lwrad
+   USE module_ra_rrtmg_lw   , ONLY : rrtmg_lwrad, rrtmg_lwrad_twoway
    USE module_ra_rrtmg_sw   , ONLY : rrtmg_swrad
    USE module_ra_cam        , ONLY : camrad
    USE module_ra_gfdleta    , ONLY : etara
@@ -539,6 +599,59 @@ CONTAINS
      REAL, DIMENSION( ims:ime, jms:jme ), OPTIONAL, INTENT(IN)  :: ht
      INTEGER, DIMENSION( ims:ime, jms:jme ), OPTIONAL, INTENT(IN) :: shadowmask
 
+! =s= WRF-CMAQ twoway coupled model
+! variables for coupled radiation codes.  - FSB
+
+   REAL, DIMENSION (ims:ime, kms:kme, jms:jme ),                 &
+         INTENT(INOUT)  ::  mass_ws_i, mass_ws_j, mass_ws_k,     &
+                            mass_in_i, mass_in_j, mass_in_k,     &
+                            mass_ec_i, mass_ec_j, mass_ec_k,     &
+                            mass_ss_i, mass_ss_j, mass_ss_k,     &
+                            mass_h2o_i, mass_h2o_j, mass_h2o_k,  &
+                            dgn_i, dgn_j, dgn_k,                 &
+                            sig_i, sig_j, sig_k
+
+   REAL, DIMENSION (ims:ime, kms:kme, jms:jme ), INTENT(OUT)       ::  sw_gtauxar_01, &
+                                                                       sw_gtauxar_02, &
+                                                                       sw_gtauxar_03, &
+                                                                       sw_gtauxar_04, &
+                                                                       sw_gtauxar_05, &
+                                                                       sw_asy_fac_01, &
+                                                                       sw_asy_fac_02, &
+                                                                       sw_asy_fac_03, &
+                                                                       sw_asy_fac_04, &
+                                                                       sw_asy_fac_05, &
+                                                                       sw_ssa_01,     &
+                                                                       sw_ssa_02,     &
+                                                                       sw_ssa_03,     &
+                                                                       sw_ssa_04,     &
+                                                                       sw_ssa_05,     &
+                                                                       lw_gtauxar_01, &
+                                                                       lw_gtauxar_02, &
+                                                                       lw_gtauxar_03, &
+                                                                       lw_gtauxar_04, &
+                                                                       lw_gtauxar_05
+
+   REAL, DIMENSION( ims:ime, jms:jme ), INTENT(OUT)                ::  sw_ttauxar_01, &
+                                                                       sw_ttauxar_02, &
+                                                                       sw_ttauxar_03, &
+                                                                       sw_ttauxar_04, &
+                                                                       sw_ttauxar_05, &
+                                                                       lw_ttauxar_01, &
+                                                                       lw_ttauxar_02, &
+                                                                       lw_ttauxar_03, &
+                                                                       lw_ttauxar_04, &
+                                                                       lw_ttauxar_05
+
+   LOGICAL, INTENT(IN) :: feedback_is_ready
+
+   REAL, DIMENSION( ims:ime, kms:kme, jms:jme ), INTENT(IN)        ::  ozone
+   REAL, DIMENSION( ims:ime, jms:jme ), INTENT(OUT)                ::  sw_zbbcddir,   &
+                                                                       sw_dirdflux,   &
+                                                                       sw_difdflux
+
+! =e= WRF-CMAQ twoway coupled model
+
    REAL , OPTIONAL, INTENT(INOUT) ::    radtacttime ! Storing the time in s when radiation is called next
 ! LOCAL  VAR
 
@@ -568,9 +681,25 @@ CONTAINS
    REAL, OPTIONAL, DIMENSION( ims:ime, jms:jme), INTENT(OUT) :: COSZEN
    REAL, OPTIONAL, DIMENSION( ims:ime, jms:jme), INTENT(OUT) :: HRANG
 !------------------------------------------------------------------
+
 #ifdef HWRF
    CHARACTER(len=265) :: wrf_err_message
 #endif
+
+! =s= WRF-CMAQ twoway coupled model
+   logical, save :: firstime = .true.
+   logical, save :: wrf_restart, wrf_cmaq_twoway, do_sw_cal, do_lw_cal
+   integer       :: stat
+   logical       :: def_false = .false.
+   logical, external :: envyn
+
+   if (firstime) then
+      firstime = .false.
+      wrf_restart = envyn ('RSTFLAG', ' ', def_false, stat)
+      do_sw_cal   = envyn ('DO_SW_CAL', ' ', def_false, stat)
+      do_lw_cal   = envyn ('DO_LW_CAL', ' ', def_false, stat)
+   end if
+! =e= WRF-CMAQ twoway coupled model
 
    CALL wrf_debug (1, 'Top of Radiation Driver')
 !  WRITE ( wrf_err_message , * ) 'itimestep = ',itimestep,', dt = ',dt,', lw and sw options = ',lw_physics,sw_physics
@@ -1029,8 +1158,8 @@ CONTAINS
                    ,doabsems=doabsems                               &
                  ,IDS=ids,IDE=ide, JDS=jds,JDE=jde, KDS=kds,KDE=kde &     
                  ,IMS=ims,IME=ime, JMS=jms,JME=jme, KMS=kms,KME=kme &
-                 ,ITS=its,ITE=ite, JTS=jts,JTE=jte, KTS=kts,KTE=kte &
-                                                                    )
+                 ,ITS=its,ITE=ite, JTS=jts,JTE=jte, KTS=kts,KTE=kte )
+
              ELSE
                 CALL wrf_error_fatal ( 'arguments not present for calling cam radiation' )
              ENDIF
@@ -1038,43 +1167,133 @@ CONTAINS
         CASE (RRTMG_LWSCHEME)
              CALL wrf_debug (100, 'CALL rrtmg_lw')
 
-             CALL RRTMG_LWRAD(                                      &
-                  RTHRATENLW=RTHRATEN,                              &
-                  LWUPT=LWUPT,LWUPTC=LWUPTC,                        &
-                  LWDNT=LWDNT,LWDNTC=LWDNTC,                        &
-                  LWUPB=LWUPB,LWUPBC=LWUPBC,                        &
-                  LWDNB=LWDNB,LWDNBC=LWDNBC,                        &
-                  GLW=GLW,OLR=RLWTOA,LWCF=LWCF,                     &
-                  EMISS=EMISS,                                      &
-                  P8W=p8w,P3D=p,PI3D=pi,DZ8W=dz8w,TSK=tsk,T3D=t,    &
-                  T8W=t8w,RHO3D=rho,R=R_d,G=G,                      &
-                  ICLOUD=icloud,WARM_RAIN=warm_rain,CLDFRA3D=CLDFRA,&
-                  F_ICE_PHY=F_ICE_PHY,F_RAIN_PHY=F_RAIN_PHY,        &
-                  XLAND=XLAND,XICE=XICE,SNOW=SNOW,                  &
-                  QV3D=QV,QC3D=QC,QR3D=QR,                          &
-                  QI3D=QI,QS3D=QS,QG3D=QG,                          &
-                  F_QV=F_QV,F_QC=F_QC,F_QR=F_QR,                    &
-                  F_QI=F_QI,F_QS=F_QS,F_QG=F_QG,                    &
+! =s= WRF-CMAQ twoway coupled model
+             if ( do_lw_cal .and. (feedback_is_ready .or. wrf_restart) ) then
+                if (.not. feedback_is_ready .and. wrf_restart) then
+                   mass_ws_i(:,kte+1,:) = mass_ws_i(:,kte,:)
+                   mass_ws_j(:,kte+1,:) = mass_ws_j(:,kte,:)
+                   mass_ws_k(:,kte+1,:) = mass_ws_k(:,kte,:)
+
+                   mass_in_i(:,kte+1,:) = mass_in_i(:,kte,:)
+                   mass_in_j(:,kte+1,:) = mass_in_j(:,kte,:)
+                   mass_in_k(:,kte+1,:) = mass_in_k(:,kte,:)
+
+                   mass_ec_i(:,kte+1,:) = mass_ec_i(:,kte,:)
+                   mass_ec_j(:,kte+1,:) = mass_ec_j(:,kte,:)
+                   mass_ec_k(:,kte+1,:) = mass_ec_k(:,kte,:)
+
+                   mass_ss_i(:,kte+1,:) = mass_ss_i(:,kte,:)
+                   mass_ss_j(:,kte+1,:) = mass_ss_j(:,kte,:)
+                   mass_ss_k(:,kte+1,:) = mass_ss_k(:,kte,:)
+
+                   mass_h2o_i(:,kte+1,:) = mass_h2o_i(:,kte,:)
+                   mass_h2o_j(:,kte+1,:) = mass_h2o_j(:,kte,:)
+                   mass_h2o_k(:,kte+1,:) = mass_h2o_k(:,kte,:)
+
+                   dgn_i(:,kte+1,:) = dgn_i(:,kte,:)
+                   dgn_j(:,kte+1,:) = dgn_j(:,kte,:)
+                   dgn_k(:,kte+1,:) = dgn_k(:,kte,:)
+
+                   sig_i(:,kte+1,:) = sig_i(:,kte,:)
+                   sig_j(:,kte+1,:) = sig_j(:,kte,:)
+                   sig_k(:,kte+1,:) = sig_k(:,kte,:)
+                end if
+
+                CALL RRTMG_LWRAD_twoway(                               &
+                     RTHRATENLW=RTHRATEN,                              &
+                     LWUPT=LWUPT,LWUPTC=LWUPTC,                        &
+                     LWDNT=LWDNT,LWDNTC=LWDNTC,                        &
+                     LWUPB=LWUPB,LWUPBC=LWUPBC,                        &
+                     LWDNB=LWDNB,LWDNBC=LWDNBC,                        &
+                     GLW=GLW,OLR=RLWTOA,LWCF=LWCF,                     &
+                     EMISS=EMISS,                                      &
+                     P8W=p8w,P3D=p,PI3D=pi,DZ8W=dz8w,TSK=tsk,T3D=t,    &
+                     T8W=t8w,RHO3D=rho,R=R_d,G=G,                      &
+                     ICLOUD=icloud,WARM_RAIN=warm_rain,CLDFRA3D=CLDFRA,&
+                     XLAND=XLAND,XICE=XICE,SNOW=SNOW,                  &
+                     QV3D=QV,QC3D=QC,QR3D=QR,                          &
+                     QI3D=QI,QS3D=QS,QG3D=QG,                          &
+                     F_QV=F_QV,F_QC=F_QC,F_QR=F_QR,                    &
+                     F_QI=F_QI,F_QS=F_QS,F_QG=F_QG,                    &
+                     IDS=ids,IDE=ide, JDS=jds,JDE=jde, KDS=kds,KDE=kde,&
+                     IMS=ims,IME=ime, JMS=jms,JME=jme, KMS=kms,KME=kme,&
+                     ITS=its,ITE=ite, JTS=jts,JTE=jte, KTS=kts,KTE=kte,&
+                     LWUPFLX=LWUPFLX,LWUPFLXC=LWUPFLXC,                &
+                     LWDNFLX=LWDNFLX,LWDNFLXC=LWDNFLXC                 &
+                     ,z=z, feedback_is_ready=feedback_is_ready,        &
+                     ozone=ozone                                       &
+                     ,nmode=3                                          &
+                     ,mass_ws_i=mass_ws_i, mass_ws_j=mass_ws_j, mass_ws_k=mass_ws_k       &
+                     ,mass_in_i=mass_in_i, mass_in_j=mass_in_j, mass_in_k=mass_in_k       &
+                     ,mass_ec_i=mass_ec_i, mass_ec_j=mass_ec_j, mass_ec_k=mass_ec_k       &
+                     ,mass_ss_i=mass_ss_i, mass_ss_j=mass_ss_j, mass_ss_k=mass_ss_k       &
+                     ,mass_h2o_i=mass_h2o_i, mass_h2o_j=mass_h2o_j, mass_h2o_k=mass_h2o_k &
+                     ,dgn_i=dgn_i, dgn_j=dgn_j, dgn_k=dgn_k                               &
+                     ,sig_i=sig_i, sig_j=sig_j, sig_k=sig_k                               &
+                     ,gtauxar_01=lw_gtauxar_01                                            &
+                     ,gtauxar_02=lw_gtauxar_02                                            &
+                     ,gtauxar_03=lw_gtauxar_03                                            &
+                     ,gtauxar_04=lw_gtauxar_04                                            &
+                     ,gtauxar_05=lw_gtauxar_05                                            &
+                    )
+             else
+! =e= WRF-CMAQ twoway coupled model 
+                CALL RRTMG_LWRAD(                                      &
+                     RTHRATENLW=RTHRATEN,                              &
+                     LWUPT=LWUPT,LWUPTC=LWUPTC,                        &
+                     LWDNT=LWDNT,LWDNTC=LWDNTC,                        &
+                     LWUPB=LWUPB,LWUPBC=LWUPBC,                        &
+                     LWDNB=LWDNB,LWDNBC=LWDNBC,                        &
+                     GLW=GLW,OLR=RLWTOA,LWCF=LWCF,                     &
+                     EMISS=EMISS,                                      &
+                     P8W=p8w,P3D=p,PI3D=pi,DZ8W=dz8w,TSK=tsk,T3D=t,    &
+                     T8W=t8w,RHO3D=rho,R=R_d,G=G,                      &
+                     ICLOUD=icloud,WARM_RAIN=warm_rain,CLDFRA3D=CLDFRA,&
+                     F_ICE_PHY=F_ICE_PHY,F_RAIN_PHY=F_RAIN_PHY,        &
+                     XLAND=XLAND,XICE=XICE,SNOW=SNOW,                  &
+                     QV3D=QV,QC3D=QC,QR3D=QR,                          &
+                     QI3D=QI,QS3D=QS,QG3D=QG,                          &
+                     F_QV=F_QV,F_QC=F_QC,F_QR=F_QR,                    &
+                     F_QI=F_QI,F_QS=F_QS,F_QG=F_QG,                    &
 #ifdef WRF_CHEM
-                  TAUAERLW1=tauaerlw1,TAUAERLW2=tauaerlw2,          & ! jcb
-                  TAUAERLW3=tauaerlw3,TAUAERLW4=tauaerlw4,          & ! jcb
-                  TAUAERLW5=tauaerlw5,TAUAERLW6=tauaerlw6,          & ! jcb
-                  TAUAERLW7=tauaerlw7,TAUAERLW8=tauaerlw8,          & ! jcb
-                  TAUAERLW9=tauaerlw9,TAUAERLW10=tauaerlw10,          & ! jcb
-                  TAUAERLW11=tauaerlw11,TAUAERLW12=tauaerlw12,          & ! jcb
-                  TAUAERLW13=tauaerlw13,TAUAERLW14=tauaerlw14,          & ! jcb
-                  TAUAERLW15=tauaerlw15,TAUAERLW16=tauaerlw16,          & ! jcb
-                  aer_ra_feedback=aer_ra_feedback,                  &
-!jdfcz            progn=progn,prescribe=prescribe,                   &
-                  progn=progn,                                       &
+                     TAUAERLW1=tauaerlw1,TAUAERLW2=tauaerlw2,          & ! jcb
+                     TAUAERLW3=tauaerlw3,TAUAERLW4=tauaerlw4,          & ! jcb
+                     TAUAERLW5=tauaerlw5,TAUAERLW6=tauaerlw6,          & ! jcb
+                     TAUAERLW7=tauaerlw7,TAUAERLW8=tauaerlw8,          & ! jcb
+                     TAUAERLW9=tauaerlw9,TAUAERLW10=tauaerlw10,          & ! jcb
+                     TAUAERLW11=tauaerlw11,TAUAERLW12=tauaerlw12,          & ! jcb
+                     TAUAERLW13=tauaerlw13,TAUAERLW14=tauaerlw14,          & ! jcb
+                     TAUAERLW15=tauaerlw15,TAUAERLW16=tauaerlw16,          & ! jcb
+                     aer_ra_feedback=aer_ra_feedback,                  &
+!jdfcz               progn=progn,prescribe=prescribe,                   &
+                     progn=progn,                                       &
 #endif
-                  QNDROP3D=qndrop,F_QNDROP=f_qndrop,                &
-                  IDS=ids,IDE=ide, JDS=jds,JDE=jde, KDS=kds,KDE=kde,&
-                  IMS=ims,IME=ime, JMS=jms,JME=jme, KMS=kms,KME=kme,&
-                  ITS=its,ITE=ite, JTS=jts,JTE=jte, KTS=kts,KTE=kte,&
-                  LWUPFLX=LWUPFLX,LWUPFLXC=LWUPFLXC,                &
-                  LWDNFLX=LWDNFLX,LWDNFLXC=LWDNFLXC                 &
+                     QNDROP3D=qndrop,F_QNDROP=f_qndrop,                &
+                     IDS=ids,IDE=ide, JDS=jds,JDE=jde, KDS=kds,KDE=kde,&
+                     IMS=ims,IME=ime, JMS=jms,JME=jme, KMS=kms,KME=kme,&
+                     ITS=its,ITE=ite, JTS=jts,JTE=jte, KTS=kts,KTE=kte,&
+                     LWUPFLX=LWUPFLX,LWUPFLXC=LWUPFLXC,                &
+                     LWDNFLX=LWDNFLX,LWDNFLXC=LWDNFLXC                 &
+                     ,gtauxar_01=lw_gtauxar_01                         &
+                     ,gtauxar_02=lw_gtauxar_02                         &
+                     ,gtauxar_03=lw_gtauxar_03                         &
+                     ,gtauxar_04=lw_gtauxar_04                         &
+                     ,gtauxar_05=lw_gtauxar_05                         &
                                                                     )
+! =s= WRF-CMAQ twoway coupled model
+             end if
+
+             DO j=jts,jte
+                DO i=its,ite
+                   lw_ttauxar_01(i,j) = sum(lw_gtauxar_01(i,:,j))
+                   lw_ttauxar_02(i,j) = sum(lw_gtauxar_02(i,:,j))
+                   lw_ttauxar_03(i,j) = sum(lw_gtauxar_03(i,:,j))
+                   lw_ttauxar_04(i,j) = sum(lw_gtauxar_04(i,:,j))
+                   lw_ttauxar_05(i,j) = sum(lw_gtauxar_05(i,:,j))
+                END DO
+             END DO
+
+! =e= WRF-CMAQ twoway coupled model
 
         CASE (HELDSUAREZ)
              CALL wrf_debug (100, 'CALL heldsuarez')
@@ -1343,8 +1562,8 @@ CONTAINS
                    ,doabsems=doabsems                               &
                  ,IDS=ids,IDE=ide, JDS=jds,JDE=jde, KDS=kds,KDE=kde &     
                  ,IMS=ims,IME=ime, JMS=jms,JME=jme, KMS=kms,KME=kme &
-                 ,ITS=its,ITE=ite, JTS=jts,JTE=jte, KTS=kts,KTE=kte &
-                                                                    )
+                 ,ITS=its,ITE=ite, JTS=jts,JTE=jte, KTS=kts,KTE=kte )
+
              ELSE
                 CALL wrf_error_fatal ( 'arguments not present for calling cam radiation' )
              ENDIF
@@ -1358,49 +1577,172 @@ CONTAINS
 
         CASE (RRTMG_SWSCHEME)
              CALL wrf_debug(100, 'CALL rrtmg_sw')
-             CALL RRTMG_SWRAD(                                         &
-                     RTHRATENSW=RTHRATENSW,                            &
-                     SWUPT=SWUPT,SWUPTC=SWUPTC,                        &
-                     SWDNT=SWDNT,SWDNTC=SWDNTC,                        &
-                     SWUPB=SWUPB,SWUPBC=SWUPBC,                        &
-                     SWDNB=SWDNB,SWDNBC=SWDNBC,                        &
-                     SWCF=SWCF,GSW=GSW,                                &
-                     XTIME=XTIME,GMT=GMT,XLAT=XLAT,XLONG=XLONG,        &
-                     RADT=RADT,DEGRAD=DEGRAD,DECLIN=DECLIN,            &
-                     COSZR=COSZR,JULDAY=JULDAY,SOLCON=SOLCON,          &
-                     ALBEDO=ALBEDO,t3d=t,t8w=t8w,TSK=TSK,              &
-                     p3d=p,p8w=p8w,pi3d=pi,rho3d=rho,                  &
-                     dz8w=dz8w,CLDFRA3D=CLDFRA,R=R_D,G=G,              &
-                     ICLOUD=icloud,WARM_RAIN=warm_rain,                &
-                     F_ICE_PHY=F_ICE_PHY,F_RAIN_PHY=F_RAIN_PHY,        &
-                     XLAND=XLAND,XICE=XICE,SNOW=SNOW,                  &
-                     QV3D=qv,QC3D=qc,QR3D=qr,                          &
-                     QI3D=qi,QS3D=qs,QG3D=qg,                          &
-                     ALSWVISDIR=alswvisdir ,ALSWVISDIF=alswvisdif,     &  !Zhenxin ssib alb comp (06/2010)
-                     ALSWNIRDIR=alswnirdir ,ALSWNIRDIF=alswnirdif,     &  !Zhenxin ssib alb comp (06/2010)
-                     SWVISDIR=swvisdir ,SWVISDIF=swvisdif,             &  !Zhenxin ssib swr comp (06/2010)
-                     SWNIRDIR=swnirdir ,SWNIRDIF=swnirdif,             &  !Zhenxin ssib swr comp (06/2010)
-                     SF_SURFACE_PHYSICS=sf_surface_physics,            &  !Zhenxin ssib sw_phy   (06/2010)
-                     F_QV=f_qv,F_QC=f_qc,F_QR=f_qr,                    &
-                     F_QI=f_qi,F_QS=f_qs,F_QG=f_qg,                    &
+
+! =s= WRF-CMAQ twoway coupled model
+             if ( do_sw_cal .and. (feedback_is_ready .or. wrf_restart) ) then
+                if (.not. feedback_is_ready .and. wrf_restart) then
+                   mass_ws_i(:,kte+1,:) = mass_ws_i(:,kte,:)
+                   mass_ws_j(:,kte+1,:) = mass_ws_j(:,kte,:)
+                   mass_ws_k(:,kte+1,:) = mass_ws_k(:,kte,:)
+
+                   mass_in_i(:,kte+1,:) = mass_in_i(:,kte,:)
+                   mass_in_j(:,kte+1,:) = mass_in_j(:,kte,:)
+                   mass_in_k(:,kte+1,:) = mass_in_k(:,kte,:)
+
+                   mass_ec_i(:,kte+1,:) = mass_ec_i(:,kte,:)
+                   mass_ec_j(:,kte+1,:) = mass_ec_j(:,kte,:)
+                   mass_ec_k(:,kte+1,:) = mass_ec_k(:,kte,:)
+
+                   mass_ss_i(:,kte+1,:) = mass_ss_i(:,kte,:)
+                   mass_ss_j(:,kte+1,:) = mass_ss_j(:,kte,:)
+                   mass_ss_k(:,kte+1,:) = mass_ss_k(:,kte,:)
+
+                   mass_h2o_i(:,kte+1,:) = mass_h2o_i(:,kte,:)
+                   mass_h2o_j(:,kte+1,:) = mass_h2o_j(:,kte,:)
+                   mass_h2o_k(:,kte+1,:) = mass_h2o_k(:,kte,:)
+
+                   dgn_i(:,kte+1,:) = dgn_i(:,kte,:)
+                   dgn_j(:,kte+1,:) = dgn_j(:,kte,:)
+                   dgn_k(:,kte+1,:) = dgn_k(:,kte,:)
+
+                   sig_i(:,kte+1,:) = sig_i(:,kte,:)
+                   sig_j(:,kte+1,:) = sig_j(:,kte,:)
+                   sig_k(:,kte+1,:) = sig_k(:,kte,:)
+                end if
+
+                CALL RRTMG_SWRAD2(                                        &
+                        RTHRATENSW=RTHRATENSW,                            &
+                        SWUPT=SWUPT,SWUPTC=SWUPTC,                        &
+                        SWDNT=SWDNT,SWDNTC=SWDNTC,                        &
+                        SWUPB=SWUPB,SWUPBC=SWUPBC,                        &
+                        SWDNB=SWDNB,SWDNBC=SWDNBC,                        &
+                        SWCF=SWCF,GSW=GSW,                                &
+                        XTIME=XTIME,GMT=GMT,XLAT=XLAT,XLONG=XLONG,        &
+                        RADT=RADT,DEGRAD=DEGRAD,DECLIN=DECLIN,            &
+                        COSZR=COSZR,JULDAY=JULDAY,SOLCON=SOLCON,          &
+                        ALBEDO=ALBEDO,t3d=t,t8w=t8w,TSK=TSK,              &
+                        p3d=p,p8w=p8w,pi3d=pi,rho3d=rho,                  &
+                        dz8w=dz8w,CLDFRA3D=CLDFRA,R=R_D,G=G,              &
+                        ICLOUD=icloud,WARM_RAIN=warm_rain,                &
+                        F_ICE_PHY=F_ICE_PHY,F_RAIN_PHY=F_RAIN_PHY,        &
+                        XLAND=XLAND,XICE=XICE,SNOW=SNOW,                  &
+                        QV3D=qv,QC3D=qc,QR3D=qr,                          &
+                        QI3D=qi,QS3D=qs,QG3D=qg,                          &
+                        ALSWVISDIR=alswvisdir ,ALSWVISDIF=alswvisdif,     &  !Zhenxin ssib alb comp (06/2010)
+                        ALSWNIRDIR=alswnirdir ,ALSWNIRDIF=alswnirdif,     &  !Zhenxin ssib alb comp (06/2010)
+                        SWVISDIR=swvisdir ,SWVISDIF=swvisdif,             &  !Zhenxin ssib swr comp (06/2010)
+                        SWNIRDIR=swnirdir ,SWNIRDIF=swnirdif,             &  !Zhenxin ssib swr comp (06/2010)
+                        SF_SURFACE_PHYSICS=sf_surface_physics,            &  !Zhenxin ssib sw_phy   (06/2010)
+                        F_QV=f_qv,F_QC=f_qc,F_QR=f_qr,                    &
+                        F_QI=f_qi,F_QS=f_qs,F_QG=f_qg,                    &
 #ifdef WRF_CHEM
-                     TAUAER300=tauaer300,TAUAER400=tauaer400,          & ! jcb
-                     TAUAER600=tauaer600,TAUAER999=tauaer999,          & ! jcb
-                     GAER300=gaer300,GAER400=gaer400,                  & ! jcb
-                     GAER600=gaer600,GAER999=gaer999,                  & ! jcb
-                     WAER300=waer300,WAER400=waer400,                  & ! jcb
-                     WAER600=waer600,WAER999=waer999,                  & ! jcb
-                     aer_ra_feedback=aer_ra_feedback,                  &
-!jdfcz               progn=progn,prescribe=prescribe,                  &
-                     progn=progn,                                      &
+                        TAUAER300=tauaer300,TAUAER400=tauaer400,          & ! jcb
+                        TAUAER600=tauaer600,TAUAER999=tauaer999,          & ! jcb
+                        GAER300=gaer300,GAER400=gaer400,                  & ! jcb
+                        GAER600=gaer600,GAER999=gaer999,                  & ! jcb
+                        WAER300=waer300,WAER400=waer400,                  & ! jcb
+                        WAER600=waer600,WAER999=waer999,                  & ! jcb
+                        aer_ra_feedback=aer_ra_feedback,                  &
+!jdfcz                  progn=progn,prescribe=prescribe,                  &
+                        progn=progn,                                      &
 #endif
-                     QNDROP3D=qndrop,F_QNDROP=f_qndrop,                &
-                     IDS=ids,IDE=ide, JDS=jds,JDE=jde, KDS=kds,KDE=kde,&
-                     IMS=ims,IME=ime, JMS=jms,JME=jme, KMS=kms,KME=kme,&
-                     ITS=its,ITE=ite, JTS=jts,JTE=jte, KTS=kts,KTE=kte,&
-                     SWUPFLX=SWUPFLX,SWUPFLXC=SWUPFLXC,                &
-                     SWDNFLX=SWDNFLX,SWDNFLXC=SWDNFLXC                 &
+                        QNDROP3D=qndrop,F_QNDROP=f_qndrop,                &
+                        IDS=ids,IDE=ide, JDS=jds,JDE=jde, KDS=kds,KDE=kde,&
+                        IMS=ims,IME=ime, JMS=jms,JME=jme, KMS=kms,KME=kme,&
+                        ITS=its,ITE=ite, JTS=jts,JTE=jte, KTS=kts,KTE=kte,&
+                        SWUPFLX=SWUPFLX,SWUPFLXC=SWUPFLXC,                &
+                        SWDNFLX=SWDNFLX,SWDNFLXC=SWDNFLXC                 &
+                        ,nmode=3                                          &
+                        ,mass_ws_i=mass_ws_i, mass_ws_j=mass_ws_j, mass_ws_k=mass_ws_k       &
+                        ,mass_in_i=mass_in_i, mass_in_j=mass_in_j, mass_in_k=mass_in_k       &
+                        ,mass_ec_i=mass_ec_i, mass_ec_j=mass_ec_j, mass_ec_k=mass_ec_k       &
+                        ,mass_ss_i=mass_ss_i, mass_ss_j=mass_ss_j, mass_ss_k=mass_ss_k       &
+                        ,mass_h2o_i=mass_h2o_i, mass_h2o_j=mass_h2o_j, mass_h2o_k=mass_h2o_k &
+                        ,dgn_i=dgn_i, dgn_j=dgn_j, dgn_k=dgn_k                               &
+                        ,sig_i=sig_i, sig_j=sig_j, sig_k=sig_k                               &
+                        ,gtauxar_01=sw_gtauxar_01                                            &
+                        ,gtauxar_02=sw_gtauxar_02                                            &
+                        ,gtauxar_03=sw_gtauxar_03                                            &
+                        ,gtauxar_04=sw_gtauxar_04                                            &
+                        ,gtauxar_05=sw_gtauxar_05                                            &
+                        ,asy_fac_01=sw_asy_fac_01                                            &
+                        ,asy_fac_02=sw_asy_fac_02                                            &
+                        ,asy_fac_03=sw_asy_fac_03                                            &
+                        ,asy_fac_04=sw_asy_fac_04                                            &
+                        ,asy_fac_05=sw_asy_fac_05                                            &
+                        ,ssa_01=sw_ssa_01                                                    &
+                        ,ssa_02=sw_ssa_02                                                    &
+                        ,ssa_03=sw_ssa_03                                                    &
+                        ,ssa_04=sw_ssa_04                                                    &
+                        ,ssa_05=sw_ssa_05                                                    &
+                        ,sw_zbbcddir=sw_zbbcddir                                             &
+                        ,sw_dirdflux=sw_dirdflux                                             &
+                        ,sw_difdflux=sw_difdflux                                             &
+                                                                          )
+
+                DO j=jts,jte
+                   DO i=its,ite
+                      sw_ttauxar_01(i,j) = sum(sw_gtauxar_01(i,:,j))
+                      sw_ttauxar_02(i,j) = sum(sw_gtauxar_02(i,:,j))
+                      sw_ttauxar_03(i,j) = sum(sw_gtauxar_03(i,:,j))
+                      sw_ttauxar_04(i,j) = sum(sw_gtauxar_04(i,:,j))
+                      sw_ttauxar_05(i,j) = sum(sw_gtauxar_05(i,:,j))
+                   END DO
+                END DO
+
+             else
+! =e= WRF-CMAQ twoway coupled model
+
+                CALL RRTMG_SWRAD(                                         &
+                        RTHRATENSW=RTHRATENSW,                            &
+                        SWUPT=SWUPT,SWUPTC=SWUPTC,                        &
+                        SWDNT=SWDNT,SWDNTC=SWDNTC,                        &
+                        SWUPB=SWUPB,SWUPBC=SWUPBC,                        &
+                        SWDNB=SWDNB,SWDNBC=SWDNBC,                        &
+                        SWCF=SWCF,GSW=GSW,                                &
+                        XTIME=XTIME,GMT=GMT,XLAT=XLAT,XLONG=XLONG,        &
+                        RADT=RADT,DEGRAD=DEGRAD,DECLIN=DECLIN,            &
+                        COSZR=COSZR,JULDAY=JULDAY,SOLCON=SOLCON,          &
+                        ALBEDO=ALBEDO,t3d=t,t8w=t8w,TSK=TSK,              &
+                        p3d=p,p8w=p8w,pi3d=pi,rho3d=rho,                  &
+                        dz8w=dz8w,CLDFRA3D=CLDFRA,R=R_D,G=G,              &
+                        ICLOUD=icloud,WARM_RAIN=warm_rain,                &
+                        F_ICE_PHY=F_ICE_PHY,F_RAIN_PHY=F_RAIN_PHY,        &
+                        XLAND=XLAND,XICE=XICE,SNOW=SNOW,                  &
+                        QV3D=qv,QC3D=qc,QR3D=qr,                          &
+                        QI3D=qi,QS3D=qs,QG3D=qg,                          &
+                        ALSWVISDIR=alswvisdir ,ALSWVISDIF=alswvisdif,     &  !Zhenxin ssib alb comp (06/2010)
+                        ALSWNIRDIR=alswnirdir ,ALSWNIRDIF=alswnirdif,     &  !Zhenxin ssib alb comp (06/2010)
+                        SWVISDIR=swvisdir ,SWVISDIF=swvisdif,             &  !Zhenxin ssib swr comp (06/2010)
+                        SWNIRDIR=swnirdir ,SWNIRDIF=swnirdif,             &  !Zhenxin ssib swr comp (06/2010)
+                        SF_SURFACE_PHYSICS=sf_surface_physics,            &  !Zhenxin ssib sw_phy   (06/2010)
+                        F_QV=f_qv,F_QC=f_qc,F_QR=f_qr,                    &
+                        F_QI=f_qi,F_QS=f_qs,F_QG=f_qg,                    &
+#ifdef WRF_CHEM
+                        TAUAER300=tauaer300,TAUAER400=tauaer400,          & ! jcb
+                        TAUAER600=tauaer600,TAUAER999=tauaer999,          & ! jcb
+                        GAER300=gaer300,GAER400=gaer400,                  & ! jcb
+                        GAER600=gaer600,GAER999=gaer999,                  & ! jcb
+                        WAER300=waer300,WAER400=waer400,                  & ! jcb
+                        WAER600=waer600,WAER999=waer999,                  & ! jcb
+                        aer_ra_feedback=aer_ra_feedback,                  &
+!jdfcz                  progn=progn,prescribe=prescribe,                  &
+                        progn=progn,                                      &
+#endif
+                        QNDROP3D=qndrop,F_QNDROP=f_qndrop,                &
+                        IDS=ids,IDE=ide, JDS=jds,JDE=jde, KDS=kds,KDE=kde,&
+                        IMS=ims,IME=ime, JMS=jms,JME=jme, KMS=kms,KME=kme,&
+                        ITS=its,ITE=ite, JTS=jts,JTE=jte, KTS=kts,KTE=kte,&
+                        SWUPFLX=SWUPFLX,SWUPFLXC=SWUPFLXC,                &
+                        SWDNFLX=SWDNFLX,SWDNFLXC=SWDNFLXC                 &
+                        ,sw_zbbcddir=sw_zbbcddir                          & ! WRF_CMAQ twoway model
+                        ,sw_dirdflux=sw_dirdflux                          & ! WRF_CMAQ twoway model
+                        ,sw_difdflux=sw_difdflux                          & ! WRF_CMAQ twoway model
                                                                        )
+! =s= WRF-CMAQ twoway coupled model
+             end if
+! =e= WRF-CMAQ twoway coupled model
+
              DO j=jts,jte
              DO k=kts,kte
              DO i=its,ite

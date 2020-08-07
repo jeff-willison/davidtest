@@ -1,0 +1,899 @@
+MODULE rrtmg_aero_optical_util_module
+
+private
+public :: aero_optical
+
+contains
+
+!------------------------------------------------------------------
+
+       subroutine aero_optical(  lamda_in,                               &
+                   nmode,                                                &
+                   nr, ni,                                               &
+                   modulus,                                              &
+                   Vol,  dgn, sig,                                       &
+                   bext, bscat, g_bar )
+     
+! *** calculate the extinction and scattering coefficients and
+!     assymetry factors for each wavelength as a sum over the 
+!     individual lognormal modes. Each mode may have a different 
+!     set of refractive indices.
+
+      IMPLICIT NONE
+! *** input variables
+      real lamda_in      ! wavelengths  [micro-m]
+                      
+      INTEGER nmode  ! number of lognormal modes
+      real nr( nmode), ni(nmode) ! real(r8) and imaginary 
+                                ! refractive indices
+      real modulus(nmode) ! modulus of refracive index                          
+      real Vol(nmode) ! modal aerosol volumes [m**3 /m**3]
+      real dgn(nmode) ! geometric mean diameters 
+                      ! for number distribution [ m]
+      real sig(nmode) ! geometric standard deviation 
+      
+      
+! *** output variables 
+      real bext  ! extinction coefficient [ 1 / m ]
+      real bscat ! scattering coefficient [ 1 / m ]
+      real g_bar  ! assymetry factor for Mie and molecular scattering
+      
+      
+! *** internal variables
+      INTEGER  j  ! loop index
+      real lamda  ! wavelength [ m]
+!      real xlnsig(nmode) ! natural log of geometric standard deviations      
+      real beta_Sc, bsc  !aerosol scattering coefficient 
+ 
+      real beta_Ex       ! aerosol extinction coefficients       
+      real G             ! modal aerosol assymetry factors
+      real sum_g
+      real VLX, DGX, SIGX, NRX, NIX, LSIGX
+      real lamdam1 ! 1/ lamda
+      real alphav ! Mie size parameter
+      real vfac
+      real modalph
+      real pi
+      PARAMETER( pi = 3.14159265359)
+       
+       
+! *** coded 09/08/2004 by Dr. Francis S. Binkowski
+! FSB Modified for RRTMG version December 2009.
+! FSB modified 10/06/2004, 10/12/2004, 10/18/2005
+! FSB 01/12/2006
+!     Formerly Carolina Environmental Program
+! FSB now the Institute for the Environment
+!     University of North Carolina at Chapel Hill
+!     email: frank_binkowski@unc.edu
+
+
+! *** initialize variables
+       lamda = 1.0e-6 * lamda_in ! lamda now in [ m ]
+       bext  = 0.0
+       bscat = 0.0
+       sum_g = 0.0
+       lamdam1 = 1.0 / lamda  ! 1 / [m]
+        
+!      write(30,*) ' inside aero_optical', ' lamda = ', lamda
+      
+       DO j = 1, nmode
+!    calculate the extinction and scattering coefficients
+!    for each mode 
+!        write(20,*) ' j = ', j
+        VLX   = Vol(j)
+        DGX   = dgn(j)
+        SIGX  = sig(j) 
+        NRX   = nr(j)
+        NIX   = ni(j)
+        LSIGX = log(SIGX)
+
+!       write(30,*) 'j = ', j
+!       write(30,*) 'VLX = ', VLX
+!       write(30,*) 'DGX = ', DGX
+!       write(30,*) 'SIGX = ', SIGX
+!       write(30,*) 'NRX =', NRX
+!       write(30,*) 'NIX = ', NIX
+!       write(30,*) 'LSIGX = ', LSIGX
+       
+!     calculate Mie size parameter for volume distribution
+!     exp(3.0 * xlnsig*xlnsig)  converts dgn to dgv (volume diameter)
+          alphav =  pi * DGX *                                           &
+                            exp(3.0 * LSIGX * LSIGX) * lamdam1
+       modalph = alphav * modulus(j)   
+!       Write(30,*) ' alphav = ', alphav
+       
+!      write(20,*) j, alphav, modalph, modulus(j)
+!       write(20,*) j, alphav, modalph, NRX, NIX
+      
+ 
+        CALL ghintBH(NRX, NIX, alphav, LSIGX, beta_EX, beta_Sc, G)            
+
+!        write(30,*) 'after Call to ghintBH ',' j = ', j 
+!        write(30,*) ' beta_EX =', beta_EX
+!        write(30,*) ' beta_SC = ', beta_Sc
+!        write(30,*) ' G = ', G
+
+! *** ghintBH returns the normalized values
+!     Calculate the actual extinction and scattering coefficients 
+!     by multplying by the modal volume and dividing by the wavelength
+         
+         
+         vfac  =  VLX * lamdam1 
+
+!        write(20,*)' vfac = ', vfac
+!        write(20,*)' G = ', G
+!        write(20,*) ' beta_Ex = ', beta_Ex
+!        write(20,*) ' beta_Sc = ', beta_Sc
+        
+! *** sum to get total extinction and scattering 
+!     and contribution to the overal assymetry factor
+
+          bext    = bext  + vfac * beta_Ex  ! [ 1 / m ]
+          bsc     = vfac * beta_Sc
+          bscat   = bscat + bsc          
+          sum_g   = sum_g + bsc * G
+
+
+       END DO  ! loop on modes  
+       
+! *** calculate combined assymetry factor for all modes  
+
+       g_bar = sum_g / bscat ! changed to divide by bscat
+!        write(30,*) ' inside aero_optical after loop '       
+!        write(30,*) ' g_bar = ', g_bar
+!       write(20,*) ' bext = ', bext
+!       write(20,*) ' bscat = ', bscat
+!       write(20,*) ' gbar = ', g_bar 
+      RETURN
+      
+      END SUBROUTINE ! aero_optical
+
+
+
+! /////////////////////////////////////////////////////////////////////
+
+
+! ***************
+! *************** This is the newest (12_20_2011) version of GhintBH
+!      this versio does Mie only with in Internal call tree
+!      to the new Penndorf method and calculates teh optimum set of 
+!      Gauss-Hermite abscissas and weights. 
+!      Dr. Francis S. Binkowski, The University of North Carolina
+!                                at Chapel Hill
+       subroutine ghintBH(nr, ni, alfv, xlnsig, bext, bscat, g) 
+! FSB this code file now contains all of the necessary subroutines that 
+!     are called to perform an integral of the Bohren and Huffman
+!     Mie codes ( as updated by Prof. Bruce C. Drain of Princeton)
+!       calculates the extinction and scattering coefficients 
+!       normalized by wavelength and total particle volume
+!       concentration for a log normal particle distribution 
+!       with the logarithm of the geometric  standard deviation
+!       given by xlnsig. The integral of the
+!       asymmetry factor g is also calculated.
+! FSB Change 12/20/2011 This code now has a choice of IGH based
+!     upon alfv and nr. 
+
+!  *** Does Gauss-Hermite quadrature of Qext / alfa & Qscat / alfa
+!      over log normal distribution using 
+!      symmetric  points
+!
+      implicit none
+
+      real, intent(in)    :: nr, ni  ! indices of refraction
+      real, intent(in)    :: alfv    ! Mie parameter for dgv
+      real, intent(in)    :: xlnsig  ! log of geometric  standard deviation
+      real, intent(out)   :: bext    ! normalized extinction coefficient
+      real, intent(out)   :: bscat   ! normalized scattering coefficient
+      real, intent(out)   :: g       ! asymmetry factor
+      
+      complex :: crefin ! complex refractive index      
+      real    :: modulus ! modulus of refractive index
+      real    :: modalph ! modulus * alfv
+      real    :: aa1     ! see below for definition
+      real    :: xlnsg2  ! log(sigma_g)**2
+      real    :: alfaip, alfaim   ! Mie parameters at abscissas
+      real    :: bext_P, bscat_P, babs_P, g_PCS
+     
+!  *** these are Qext/alfa and Qscat/alfv at the abscissas
+      real    :: qalfip_e, qalfim_e ! extinction  
+      real    :: qalfip_s, qalfim_s ! scattering
+      real    :: gsalfp, gsalfm     ! scattering times asymmetry factor
+      integer :: IGH      ! index for GH quadrature      
+
+! FSB define parameters 
+      real, parameter :: pi = 3.14159265
+
+      real, parameter :: sqrtpi = 1.772454 
+
+      real, parameter :: sqrtpi1 = 1.0 / sqrtpi 
+
+      real, parameter :: sqrt2 = 1.414214 
+
+      real, parameter :: three_pi_two = 3.0 * pi / 2.0 
+
+      real, parameter ::  const = three_pi_two * sqrtpi1 
+      
+ 
+      integer ::  i
+      
+      real    ::  sum_e,sum_s, xi,wxi,xf
+      real    ::  sum_sg
+
+! Gauss-Hermite abscissas and weights
+      real,save :: ghxi_20(10),  ghwi_20(10) ! 20 point
+      real,save :: ghxi_10(5),   ghwi_10(5)  ! 10 point   
+      real,save :: ghxi_6(3),    ghwi_6(3)   !  6 point
+      real,save :: ghxi_4(2),    ghwi_4(2)   !  4 point      
+      real,save :: ghxi_2(1),    ghwi_2(1)   !  2 point
+      
+! *** the following weights and abscissas are from Abramowitz &
+!     Stegun, Table 25.10 page 924
+
+! FSB full precision from Table 25.10 
+
+! FSB twenty-point
+      data ghxi_20 /  0.2453407083009  , 0.7374737285454  ,  &
+                  1.2340762153953  , 1.7385377121166  ,      &
+                  2.2549740020893  , 2.7888060584281  ,      &
+                  3.3478545673832  , 3.9447640401156  ,      &
+                  4.6036824495507  , 5.3874808900112    /
+
+      data ghwi_20 / 4.622436696006e-1,  2.866755053628e-1,  &
+                  1.090172060600e-1,  2.481052088746e-2,     &
+                  3.243773342238e-3,  2.283386360163e-4,     &
+                  7.802556478532e-6,  1.086069370769e-7,     &
+                  4.399340992273e-10, 2.229393645534e-13 /
+
+
+! FSB ten-point 
+       data ghxi_10 /0.342901327223705,                                  &
+                     1.036610829789514,                                  &
+                     1.756683649299882,                                  &
+                     2.532731674232790,                                  &
+                     3.436159118837738 /
+     
+       data ghwi_10 /6.108626337353e-01,                                 &
+                     2.401386110823e-01,                                 &
+                     3.387439445548e-02,                                 &
+                     1.343645746781e-03,                                 &
+                     7.640432855233e-06 /
+
+
+     
+! FSB six-point 
+       data ghxi_6 / 0.436077411927617,  &
+                     1.335849074013597,  &
+                     2.350604973674492/
+          
+       data ghwi_6 / 7.246295952244e-01, &
+                     1.570673203229e-01, &
+                     4.530009905509e-03/
+
+! FSB four-point
+  
+       data ghxi_4 / 0.524647623275290,  1.650680123885785 /
+       data ghwi_4 / 8.049140900055e-01, 8.131283544755e-02 /
+
+! FSB two-point
+
+       data ghxi_2 / 0.707106781186548 /
+       data ghwi_2 / 8.862269254528e-01 /
+
+! FSB begin code
+
+      crefin = cmplx(nr,ni)
+      modulus = sqrt( nr*nr + ni*ni )
+      modalph = modulus * alfv
+      xlnsg2 = xlnsig*xlnsig
+
+
+
+! FSB now choose IGH. These choices are designed to improve
+!     the computational efficiency without sacrificing accuracy.
+
+       IGH=3 ! default value; six_point is sufficient generally
+       if (nr .le. 1.7) IGH = 4 ! more points needed here
+       
+       if( alfv .lt. 0.3) then
+ ! FSB Check for valid range of Penndorf application.     
+         call pennfsb(nr,ni,alfv,xlnsg2,bext_P,bscat_P,babs_P,g_PCS)
+          bext  = bext_P
+          bscat = bscat_p
+          g     = g_PCS * exp(4.0 * xlnsg2) ! match GH integral            
+          return
+       else  if( alfv .gt. 20.0 .or. alfv .lt. 0.5 ) then
+         IGH = 1 ! in  this range fewer points are needed
+       end if
+              
+      aa1 = sqrt2 * xlnsig ! This 1.0 / Sqrt( A ) in derivation
+                           ! of the integral
+                           ! where A = 1.0 / ( 2.0 * xlnsg**2 ) 
+! Then alpha = alfv * exp[ u / sqrt(A) ]
+! For Gauss-Hermite Quadrature u = xi 
+! Therefore, xf = exp( xi / sqrt(A) ),
+!  or xf = exp( xi * aa1 ) 
+      sum_e = 0.0
+      sum_s = 0.0
+      sum_sg = 0.0
+!      sum_g = 0.0      
+      aa1 = sqrt2 * xlnsig 
+
+      if ( IGH .ge. 5 ) then
+! twenty point
+      
+       do i = 1,10
+          xi      = ghxi_20(i)
+          wxi     = ghwi_20(i)
+          xf      = exp( xi * aa1 )
+       
+         alfaip  = alfv * xf
+         alfaim  = alfv / xf ! division cheaper than another exp()
+
+! *** suboutines fetch the effficiencies
+
+         call getqext_BH(alfaip,crefin,qalfip_e,qalfip_s, gsalfp)
+         call getqext_BH(alfaim,crefin,qalfim_e,qalfim_s, gsalfm)
+       
+
+         sum_e  = sum_e + wxi  * ( qalfip_e + qalfim_e ) 
+         sum_s  = sum_s + wxi  * ( qalfip_s + qalfim_s ) 
+         sum_sg = sum_sg + wxi * ( gsalfp + gsalfm ) 
+         
+          
+       end do
+ 
+        else if (IGH .eq. 4) then
+
+! 10 point
+
+       do i = 1,5
+          xi      = ghxi_10(i)
+          wxi     = ghwi_10(i)
+          xf      = exp( xi * aa1 )
+       
+         alfaip  = alfv * xf
+         alfaim  = alfv / xf ! division cheaper than another exp()
+
+! *** suboutines fetch the effficiencies
+
+         call getqext_BH(alfaip,crefin,qalfip_e,qalfip_s, gsalfp)
+         call getqext_BH(alfaim,crefin,qalfim_e,qalfim_s, gsalfm)
+       
+
+         sum_e  = sum_e + wxi  * ( qalfip_e + qalfim_e ) 
+         sum_s  = sum_s + wxi  * ( qalfip_s + qalfim_s ) 
+         sum_sg = sum_sg + wxi * ( gsalfp + gsalfm ) 
+         
+          
+       end do
+
+
+        
+       else if (IGH .eq. 3) then
+! six point       
+        do i= 1,3
+          xi      = ghxi_6(i)
+          wxi     = ghwi_6(i)
+          xf      = exp( xi * aa1 )
+       
+         alfaip  = alfv * xf
+         alfaim  = alfv / xf ! division cheaper than another exp()
+
+! *** suboutines fetch the effficiencies
+
+         call getqext_BH(alfaip,crefin,qalfip_e,qalfip_s, gsalfp)
+         call getqext_BH(alfaim,crefin,qalfim_e,qalfim_s, gsalfm)
+       
+
+         sum_e  = sum_e + wxi  * ( qalfip_e + qalfim_e ) 
+         sum_s  = sum_s + wxi  * ( qalfip_s + qalfim_s ) 
+         sum_sg = sum_sg + wxi * ( gsalfp + gsalfm ) 
+          
+          
+        end do
+
+       else if (IGH .eq. 2) then
+! four point       
+        do i= 1,2
+          xi      = ghxi_4(i)
+          wxi     = ghwi_4(i)
+          xf      = exp( xi * aa1 )
+       
+         alfaip  = alfv * xf
+         alfaim  = alfv / xf ! division cheaper than another exp()
+
+! *** suboutines fetch the effficiencies
+
+         call getqext_BH(alfaip,crefin,qalfip_e,qalfip_s, gsalfp)
+         call getqext_BH(alfaim,crefin,qalfim_e,qalfim_s, gsalfm)
+       
+
+         sum_e  = sum_e + wxi  * ( qalfip_e + qalfim_e ) 
+         sum_s  = sum_s + wxi  * ( qalfip_s + qalfim_s ) 
+         sum_sg = sum_sg + wxi * ( gsalfp + gsalfm ) 
+          
+          
+        end do
+        
+       else if (IGH .le. 1) then
+! two point        
+          xi      = ghxi_2(1)
+          wxi     = ghwi_2(1)
+          xf      = exp( xi * aa1 )
+       
+         alfaip  = alfv * xf
+         alfaim  = alfv / xf ! division cheaper than another exp()
+
+! *** suboutines fetch the effficiencies
+
+         call getqext_BH(alfaip,crefin,qalfip_e,qalfip_s, gsalfp)
+         call getqext_BH(alfaim,crefin,qalfim_e,qalfim_s, gsalfm)
+       
+
+         sum_e  = sum_e + wxi  * ( qalfip_e + qalfim_e ) 
+         sum_s  = sum_s + wxi  * ( qalfip_s + qalfim_s ) 
+         sum_sg = sum_sg + wxi * ( gsalfp + gsalfm ) 
+
+       end if ! check on IGH
+
+ 
+                    
+      g     = sum_sg / sum_s
+      bext  = const * sum_e 
+      bscat = const * sum_s  
+     
+      return
+      end subroutine ! ghintBH
+
+      
+      subroutine getqext_BH(xx, crefin, qextalf, qscatalf, gscatalfg)
+      implicit none
+      real XX, qextalf, qscatalf, gscatalfg
+      INTEGER    NANG, MXNANG, maxang
+      
+      PARAMETER  ( MXNANG = 10, NANG = 2 )
+      PARAMETER( maxang = 2* MXNANG-1)
+      REAL       QEXT, QSCA, QBACK, G_MIE
+      COMPLEX   CREFIN
+
+        CALL BHMIE(XX,CREFIN,QEXT,QSCA,QBACK,G_MIE)
+        qextalf   = QEXT / XX
+        qscatalf  = QSCA / XX
+        gscatalfg = QSCA * G_MIE /  XX   ! need this form 
+
+      RETURN
+      END subroutine ! getqext_BH
+      
+      SUBROUTINE BHMIE(X,REFREL,QEXT,QSCA,QBACK,GSCA)
+      IMPLICIT NONE   
+! Declare parameters:
+! Note: important that MXNANG be consistent with dimension of S1 and S2
+!       in calling routine!
+      INTEGER MXNANG,NMXX
+!      PARAMETER(MXNANG=1000,NMXX=15000)
+      PARAMETER(MXNANG=10,NMXX=150000) ! FSB
+! Arguments:
+      INTEGER NANG
+      REAL GSCA,QBACK,QEXT,QSCA,X
+      COMPLEX REFREL
+      COMPLEX S1(2*MXNANG-1),S2(2*MXNANG-1)
+! Local variables:
+      INTEGER J,JJ,N,NSTOP,NMX,NN
+      DOUBLE PRECISION CHI,CHI0,CHI1,DANG,DX,EN,FN,P,PII,PSI,PSI0,PSI1,  &
+                       THETA,XSTOP,YMOD
+      DOUBLE PRECISION AMU(MXNANG),PI(MXNANG),PI0(MXNANG),PI1(MXNANG),   &
+                       TAU(MXNANG)
+      DOUBLE COMPLEX AN,AN1,BN,BN1,DREFRL,XI,XI1,Y
+      DOUBLE COMPLEX D(NMXX)
+!***********************************************************************
+! Subroutine BHMIE is the Bohren-Huffman Mie scattering subroutine
+!    to calculate scattering and absorption by a homogenous isotropic
+!    sphere.
+! Given:
+!    X = 2*pi*a/lambda
+!    REFREL = (complex refr. index of sphere)/(real index of medium)
+!    NANG = number of angles between 0 and 90 degrees
+!           (will calculate 2*NANG-1 directions from 0 to 180 deg.)
+!           if called with NANG<2, will set NANG=2 and will compute
+!           scattering for theta=0,90,180.
+! Returns:
+!    S1(1 - 2*NANG-1) = -i*f_22 (incid. E perp. to scatt. plane,
+!                                scatt. E perp. to scatt. plane)
+!    S2(1 - 2*NANG-1) = -i*f_11 (incid. E parr. to scatt. plane,
+!                                scatt. E parr. to scatt. plane)
+!    QEXT = C_ext/pi*a**2 = efficiency factor for extinction
+!    QSCA = C_sca/pi*a**2 = efficiency factor for scattering
+!    QBACK = (dC_sca/domega)/pi*a**2
+!          = backscattering efficiency [NB: this is (1/4*pi) smaller
+!            than the "radar backscattering efficiency"; see Bohren &
+!            Huffman 1983 pp. 120-123]
+!    GSCA = <cos(theta)> for scattering
+!
+! Original program taken from Bohren and Huffman (1983), Appendix A
+! Modified by Prof. Bruce T.Draine, Princeton Univ. Obs., 90/10/26
+! in order to compute <cos(theta)>
+! 91/05/07 (BTD): Modified to allow NANG=1
+! 91/08/15 (BTD): Corrected error (failure to initialize P)
+! 91/08/15 (BTD): Modified to enhance vectorizability.
+! 91/08/15 (BTD): Modified to make NANG=2 if called with NANG=1
+! 91/08/15 (BTD): Changed definition of QBACK.
+! 92/01/08 (BTD): Converted to full double precision and double complex
+!                 eliminated 2 unneed lines of code
+!                 eliminated redundant variables (e.g. APSI,APSI0)
+!                 renamed RN -> EN = double precision N
+!                 Note that DOUBLE COMPLEX and DCMPLX are not part
+!                 of f77 standard, so this version may not be fully
+!                 portable.  In event that portable version is
+!                 needed, use src/bhmie_f77.f
+! 93/06/01 (BTD): Changed AMAX1 to generic function MAX
+!***********************************************************************
+!*** Safety checks
+      NANG = 2
+!      IF(NANG.GT.MXNANG)STOP'***Error: NANG > MXNANG in bhmie'
+      IF(NANG.LT.2)NANG=2
+!*** Obtain pi:
+      PII=4.*ATAN(1.D0)
+      DX=X
+      DREFRL=REFREL
+      Y=X*DREFRL
+      YMOD=ABS(Y)
+!
+!*** Series expansion terminated after NSTOP terms
+!    Logarithmic derivatives calculated from NMX on down
+      XSTOP=X+4.*X**0.3333+2.
+      NMX=MAX(XSTOP,YMOD)+15
+! BTD experiment 91/1/15: add one more term to series and compare results
+!      NMX=AMAX1(XSTOP,YMOD)+16
+! test: compute 7001 wavelengths between .0001 and 1000 micron
+! for a=1.0micron SiC grain.  When NMX increased by 1, only a single
+! computed number changed (out of 4*7001) and it only changed by 1/8387
+! conclusion: we are indeed retaining enough terms in series!
+      NSTOP=XSTOP
+!
+      IF(NMX.GT.NMXX)THEN
+          WRITE(0,*)'Error: NMX > NMXX=',NMXX,' for |m|x=',YMOD
+          STOP
+      ENDIF
+!*** Require NANG.GE.1 in order to calculate scattering intensities
+      DANG=0.
+      IF(NANG.GT.1)DANG=.5*PII/DBLE(NANG-1)
+      DO 1000 J=1,NANG
+          THETA=DBLE(J-1)*DANG
+          AMU(J)=COS(THETA)
+ 1000 CONTINUE
+      DO 1100 J=1,NANG
+          PI0(J)=0.
+          PI1(J)=1.
+ 1100 CONTINUE
+      NN=2*NANG-1
+      DO 1200 J=1,NN
+          S1(J)=(0.,0.)
+          S2(J)=(0.,0.)
+ 1200 CONTINUE
+!
+!*** Logarithmic derivative D(J) calculated by downward recurrence
+!    beginning with initial value (0.,0.) at J=NMX
+!
+      D(NMX)=(0.,0.)
+      NN=NMX-1
+      DO 2000 N=1,NN
+          EN=NMX-N+1
+          D(NMX-N)=(EN/Y)-(1./(D(NMX-N+1)+EN/Y))
+ 2000 CONTINUE
+!
+!*** Riccati-Bessel functions with real argument X
+!    calculated by upward recurrence
+!
+      PSI0=COS(DX)
+      PSI1=SIN(DX)
+      CHI0=-SIN(DX)
+      CHI1=COS(DX)
+      XI1=DCMPLX(PSI1,-CHI1)
+      QSCA=0.E0
+      GSCA=0.E0
+      P=-1.
+      DO 3000 N=1,NSTOP
+          EN=N
+          FN=(2.E0*EN+1.)/(EN*(EN+1.))
+! for given N, PSI  = psi_n        CHI  = chi_n
+!              PSI1 = psi_{n-1}    CHI1 = chi_{n-1}
+!              PSI0 = psi_{n-2}    CHI0 = chi_{n-2}
+! Calculate psi_n and chi_n
+          PSI=(2.E0*EN-1.)*PSI1/DX-PSI0
+          CHI=(2.E0*EN-1.)*CHI1/DX-CHI0
+          XI=DCMPLX(PSI,-CHI)
+!
+!*** Store previous values of AN and BN for use
+!    in computation of g=<cos(theta)>
+          IF(N.GT.1)THEN
+              AN1=AN
+              BN1=BN
+          ENDIF
+!
+!*** Compute AN and BN:
+          AN=(D(N)/DREFRL+EN/DX)*PSI-PSI1
+          AN=AN/((D(N)/DREFRL+EN/DX)*XI-XI1)
+          BN=(DREFRL*D(N)+EN/DX)*PSI-PSI1
+          BN=BN/((DREFRL*D(N)+EN/DX)*XI-XI1)
+!
+!*** Augment sums for Qsca and g=<cos(theta)>
+          QSCA=QSCA+(2.*EN+1.)*(ABS(AN)**2+ABS(BN)**2)
+          GSCA=GSCA+((2.*EN+1.)/(EN*(EN+1.)))*            &
+               (REAL(AN)*REAL(BN)+IMAG(AN)*IMAG(BN))
+          IF(N.GT.1)THEN
+              GSCA=GSCA+((EN-1.)*(EN+1.)/EN)*             &
+              (REAL(AN1)*REAL(AN)+IMAG(AN1)*IMAG(AN)+     &
+               REAL(BN1)*REAL(BN)+IMAG(BN1)*IMAG(BN))
+          ENDIF
+!
+!*** Now calculate scattering intensity pattern
+!    First do angles from 0 to 90
+          DO 2500 J=1,NANG
+              JJ=2*NANG-J
+              PI(J)=PI1(J)
+              TAU(J)=EN*AMU(J)*PI(J)-(EN+1.)*PI0(J)
+              S1(J)=S1(J)+FN*(AN*PI(J)+BN*TAU(J))
+              S2(J)=S2(J)+FN*(AN*TAU(J)+BN*PI(J))
+ 2500     CONTINUE
+!
+!*** Now do angles greater than 90 using PI and TAU from
+!    angles less than 90.
+!    P=1 for N=1,3,...; P=-1 for N=2,4,...
+          P=-P
+          DO 2600 J=1,NANG-1
+              JJ=2*NANG-J
+              S1(JJ)=S1(JJ)+FN*P*(AN*PI(J)-BN*TAU(J))
+              S2(JJ)=S2(JJ)+FN*P*(BN*PI(J)-AN*TAU(J))
+ 2600     CONTINUE
+          PSI0=PSI1
+          PSI1=PSI
+          CHI0=CHI1
+          CHI1=CHI
+          XI1=DCMPLX(PSI1,-CHI1)
+!
+!*** Compute pi_n for next value of n
+!    For each angle J, compute pi_n+1
+!    from PI = pi_n , PI0 = pi_n-1
+          DO 2800 J=1,NANG
+              PI1(J)=((2.*EN+1.)*AMU(J)*PI(J)-(EN+1.)*PI0(J))/EN
+              PI0(J)=PI(J)
+ 2800     CONTINUE
+ 3000 CONTINUE
+!
+!*** Have summed sufficient terms.
+!    Now compute QSCA,QEXT,QBACK,and GSCA
+      GSCA=2.*GSCA/QSCA
+      QSCA=(2./(DX*DX))*QSCA
+      QEXT=(4./(DX*DX))*REAL(S1(1))
+      QBACK=(ABS(S1(2*NANG-1))/DX)**2/PII
+      RETURN
+      END  subroutine  !BHMIE
+
+! /////////////////////////////////////////////////////////////////////
+ 
+!///////////////////////////////////////////////////////////////////////      
+
+! FSB a new version of Penndorf's equations. This versiopn does 
+!     analytical integration for Qext, Qscat, Qabs to generate
+!     bext, bscat, babs. Note that the expressions for Qext & Qscat
+!     hve been divide throut by xx.
+!
+!     Reference:
+!     Caldas, M., V. Semiao, 2001, Radiative properties of small
+!                     particles: and extension of the Penndorff Model. Journal 
+!                     of the Optical Society of America A, Vol. 18, No. 4, 
+!                     pp 831-838.  
+
+!       Penndorf, R., 1962a,Scattering and extinction coefficients for small
+!                     absorbing and nonabsorbing aerosols,
+!                     J. Optical Society of America, 52, 896-904.
+
+!       Penndorf, P., 1962b,Scattering and extinction coefficients for 
+!                     small Spherical aerosols, J. Atmos. Sci., 19, p 193
+
+! FSB Coded by Dr. Francis S. Binkowski on October 25, 2011 by combining
+!     two previous versions to get a common code for the Penndorf and
+!     and Caldas & Semiao approaches. The Penndorf Qext, Qscat are much
+!     better than the versions from Caldas & Semiao despite claims to
+!     the contrary. The values of the asymmetry factor from Caldas & Semiao 
+!     are better than can be obtained from Penndorf. 
+
+! FSB This version does the analytical integral ove a lognormal 
+!     size distribution.
+      subroutine pennfsb(n, k, xx, lnsg2, bext, bscat,babs, g)
+      implicit none 
+!     input variables
+      real, intent(in)  :: n, k ! refractive index
+      real, intent(in)  :: xx ! pi * diameter / wavelength
+      real, intent(in)  :: lnsg2   ! log(sigma_g)**2       
+      real, intent(out) :: bext  ! extinction coefficient
+      real, intent(out) :: bscat ! scattering coefficient
+      real, intent(out) :: babs  ! absorption coefficient
+      real, intent(out) :: g       ! asmmetry factor
+!     internal variables
+      complex*16  :: m, m2,m4,m6,m21,m22 
+      complex*16  :: P,Q,R,S,T,U,V,W
+      complex*16  :: Qprime, Rprime,Sprime,Tprime
+      complex*16  :: Uprime, Vprime, Wprime
+      real*8      :: Qs, gQs, gpennCS
+      real*8      :: P1,P2, Q1, Q2 , S2,V1, V2 ! see usage
+      real*8      :: P1SQ, P2SQ  ! see usage
+      real*8      :: y, y2, y3, y4, y6, y7,  y8, y9       
+      real*8      :: x, x2, x3, x4, x6, x7,  x8, x9 
+      real        :: mag, modalf
+! FSB define useful numbers and fractions 
+      real, parameter :: pi = 3.14159265358979324d0 
+      real, parameter :: three_pi_two = 1.5d0 * pi
+
+      real*8, parameter :: one= 1.0d0
+      real*8, parameter :: two = 2.0d0
+      real*8, parameter :: three = 3.0d0
+      real*8, parameter :: four = 4.0d0
+      real*8, parameter :: five = 5.0d0
+      real*8, parameter :: six = 6.0d0
+      real*8, parameter :: eight = 8.0d0
+      real*8, parameter :: nine = 9.0d0
+      real*8, parameter :: fifteen = 15.0d0
+      real*8, parameter :: fortyfive = 45.0d0
+      real*8, parameter :: two5ths = two / five
+      real*8, parameter :: twothrds = two/three
+      real*8, parameter :: fourthirds = four / three
+      real*8, parameter :: onefifteenth = one / fifteen
+      real*8, parameter :: twofifteenths = two / fifteen
+      real*8, parameter :: fourninths = four / nine
+      real*8, parameter :: eightthirds = eight / three
+      real*8, parameter :: one_big = one / 31500.0d0
+      real*8, parameter :: two_fortyfive = two / fortyfive
+      real*8, parameter :: four_225 = four / 225.0d0 
+      real*8, parameter :: one_210 = one / 210.0d0
+      real*8, parameter :: one_half = one / two 
+      real*8, parameter :: four_two = four / two 
+      real*8, parameter :: nine_two = nine / two
+      real*8, parameter :: sixteen_two = eight
+      real*8, parameter :: thirtysix_two = 36.0 / two
+      real*8, parameter :: twentyfive_two = 25.0d0 / two
+      real*8, parameter :: sixtyfour_two = 64.0d0 / two
+      real*8, parameter :: fortynine_two = 49.0d0 / two
+      real*8, parameter :: eightyone_two = 81.0d0 / two
+      real*8            :: A,B,C,D,E, AA,BB,CC
+
+! FSB star code
+      mag = sqrt( n * n + k * k )
+      modalf = mag * xx
+      y  = xx ! convert to real*8
+! FSB get powers of y        
+      y2 = y * y
+      y3 = y * y * y
+      y4 = y * y3
+      y6 = y3 * y3
+      y7 = y3 * y4
+      y8 = y4 * y4
+      y9 = y6 * y3 
+
+! FSB Calculate integrals ove the lognormal distribution
+!     this is done term by term and the form is
+!     xn = yn * exp( (n**2) * lnsig2 /2.0d0)
+
+      x  = y 
+      x2 = y2 * exp( two              * lnsg2)
+      x3 = y3 * exp( nine_two         * lnsg2)
+      x4 = y4 ! * exp( eight            * lnsg2)      
+      x6 = y6 ! * exp( thirtysix_two    * lnsg2)
+      x7 = y7 ! * exp( fortynine_two    * lnsg2)
+      x8 = y8 ! * exp( fortynine_two    * lnsg2)
+      x9 = y9 ! * exp( eightyone_two    * lnsg2)
+
+        
+! FSB explicitly calculate complex refrative index m        
+        m = cmplx(n,-k)
+! FSB get powers and functions of m        
+        m2 = m * m
+        m4 = m2 * m2
+        m6 = m2 * m4
+        m21 = m2 - one
+        m22 = m2 + two
+
+! FSB calculate Penndorf's definitions from Table II of Penndorf (1962a)        
+        P = m21 / m22
+        Q = (m2 - two ) / m22
+        S = m21 / ( two * m2 + three)
+        V = m21
+! FSB get real & imaginary parts following Penndorf's mptation        
+        P1 = real(P)
+        P2 = -aimag(P)
+        P1SQ = P1 * P1
+        P2SQ = P2 * P2
+
+        Q1 = real(Q)
+        Q2 = -aimag(Q)
+        S2 = -aimag(S)
+        V1 = real(V)
+        v2 = -aimag(V)
+
+
+! FSB Get bext from Penndorf (1962a) Equation (9)  
+!     we have divided through by x and integrated analytically
+        bext = four * P2                                                  &
+               + ( 2.4d0 * (P1 * Q2 + P2 * Q1 ) +  twothrds * S2          &
+                         + twofifteenths * V2   ) * x2                    &
+               + ( eightthirds * ( P1SQ - P2SQ ) ) * x3
+
+! FSB get bscat fro Penndorf Equation (9) up to x4 
+!     we have divided through by x and integrated analytically
+        bscat = eightthirds * ( P1SQ + P2SQ ) * x3
+! FSB calculate babs
+        babs = bext - bscat
+
+! FSB now get asymmetry factor from Caldas & Semiao (2001)      
+!    
+! *** The following additional variables from Caldas & Semiao (2001)
+!     are defined in Equations 10a to 10h.
+
+        R = (m6 + 20.0d0*m4 -200.0d0*m2 + 200.0d0) / m22**2
+        T = m21 / ( ( 2.0d0 * M2 + 3.0d0) **2 )
+        U = m21 / (3.0d0 * M2 + 4.0d0 )
+        W = m21 * ( 2.0d0 * m2 - 5.0d0)
+
+! *** further definitions from Caldas & Semiao (2001)      
+        Qprime = Q
+        Rprime = 18.0d0 * R
+        Sprime = 5.0d0 * S / P
+        Tprime = 375.0d0 * T / P
+        Uprime = 28.0d0 * U / P
+        Vprime = V / P
+        Wprime = 5.0d0 * W / P
+
+! FSB calculate gQs and Qs from Caldas & Semiao (2001)
+! *** calculate Qs equation 13
+!      Qs = eightthirds * abs(P)**2                                        &
+!           * (x4 + onefifteenth * real(Qprime) * x6                       &
+!           + fourthirds * aimag(P) * x7                                   &
+!           + one_big * ( 35.0d0 * abs(Qprime)**2                          &
+!           + 20.0d0 * real(Rprime) + 35.0d0 * abs(Vprime)**2              &
+!           + 21.0d0 * abs(Sprime)**2 ) * x8                               &
+!           + two_fortyfive * aimag( Qprime * ( P - conjg(P) )) * x9 ) 
+
+! *** calculate gQs equation 15
+      
+!      gQs = four_225 * abs(P)**2 * (                                      &
+!              (5.0d0 * Real(Vprime) + 3.0d0 * real(Sprime) ) * x6         &
+!             + one_210 * ( 35.0d0 * real(Vprime*conjg(Qprime) )           &
+!             + 21.0d0 * real(Sprime * conjg(Qprime) )                     &
+!             + 10.0d0 * real(Wprime)- 6.0d0 * real(Tprime) ) * x8         &
+!             - twothrds * ( 5.0d0 * aimag(Vprime * conjg(P) )             &
+!             + 3.0d0 * aimag(Sprime * conjg(P) ) ) * x9    )
+
+! FSB recast into specific terms 
+      A =  1.0D0 * x4
+      B =  onefifteenth * real(Qprime) * x6 
+      C = fourthirds * aimag(P) * x7
+      D = one_big * ( 35.0d0 * abs(Qprime)**2                              &
+          + 20.0d0 * real(Rprime) + 35.0d0 * abs(Vprime)**2                &
+          + 21.0d0 * abs(Sprime)**2 ) * x8     
+      E = two_fortyfive * aimag( Qprime * ( P - conjg(P) )) * x9   
+       
+       Qs = eightthirds * abs(P)**2 *( A + B + C + D + E )
+       
+      AA =  (5.0d0 * Real(Vprime) + 3.0d0 * real(Sprime) ) * x6 
+      BB =  one_210 * ( 35.0d0 * real(Vprime*conjg(Qprime) )              &
+             + 21.0d0 * real(Sprime * conjg(Qprime) )                     &
+             + 10.0d0 * real(Wprime)- 6.0d0 * real(Tprime) ) * x8         
+      CC = twothrds * ( 5.0d0 * aimag(Vprime * conjg(P) )                 &
+             + 3.0d0 * aimag(Sprime * conjg(P) ) ) * x9    
+
+      gQs = four_225 * abs(P)**2 * ( AA + BB + CC )
+      
+! FSB calculate asymmetry factor and adjust with empirical term.      
+      gpennCS = (gQs / Qs) 
+      
+        g = gpennCS      
+!  FSB now multiply by three_pi_two  get output  values        
+        bext  = three_pi_two * bext  
+        bscat = three_pi_two * bscat 
+! FSB calculate babs
+        babs = bext - bscat
+        
+        return
+        end subroutine ! pennfsb
+        
+END MODULE rrtmg_aero_optical_util_module

@@ -31,6 +31,7 @@ CONTAINS
                              , ipsy,ipey,jpsy,jpey,kpsy,kpey    &
                              , k_start , k_end                  &
                              , f_flux                           &
+                             , feedback_is_ready                &                ! WRF-CMAQ twoway coupled model
                             )
     USE module_state_description
     USE module_model_constants
@@ -113,6 +114,8 @@ use module_scalar_tables
 
     INTEGER, INTENT(IN)                           ::  k_start, k_end
     LOGICAL, INTENT(IN), OPTIONAL                 ::  f_flux
+
+    LOGICAL, INTENT(IN) :: feedback_is_ready                   ! WRF-CMAQ twoway coupled model
 
 ! Local
     REAL, DIMENSION( ims:ime, jms:jme ) :: exch_temf  ! 1/7/09 WA
@@ -358,7 +361,64 @@ BENCH_START(rad_driver_tim)
      &        ,progn=config_flags%progn                                            &
 #endif
      &         ,slope_rad=config_flags%slope_rad,topo_shading=config_flags%topo_shading     &
-     &         ,shadowmask=grid%shadowmask,ht=grid%ht,dx=grid%dx,dy=grid%dy    )
+     &         ,shadowmask=grid%shadowmask,ht=grid%ht,dx=grid%dx,dy=grid%dy                 &
+               ,mass_ws_i=grid%mass_ws_i              &    ! WRF-CMAQ twoway coupled model
+               ,mass_ws_j=grid%mass_ws_j              &    ! WRF-CMAQ twoway coupled model
+               ,mass_ws_k=grid%mass_ws_k              &    ! WRF-CMAQ twoway coupled model
+               ,mass_in_i=grid%mass_in_i              &    ! WRF-CMAQ twoway coupled model
+               ,mass_in_j=grid%mass_in_j              &    ! WRF-CMAQ twoway coupled model
+               ,mass_in_k=grid%mass_in_k              &    ! WRF-CMAQ twoway coupled model
+               ,mass_ec_i=grid%mass_ec_i              &    ! WRF-CMAQ twoway coupled model
+               ,mass_ec_j=grid%mass_ec_j              &    ! WRF-CMAQ twoway coupled model
+               ,mass_ec_k=grid%mass_ec_k              &    ! WRF-CMAQ twoway coupled model
+               ,mass_ss_i=grid%mass_ss_i              &    ! WRF-CMAQ twoway coupled model
+               ,mass_ss_j=grid%mass_ss_j              &    ! WRF-CMAQ twoway coupled model
+               ,mass_ss_k=grid%mass_ss_k              &    ! WRF-CMAQ twoway coupled model
+               ,mass_h2o_i=grid%mass_h2o_i            &    ! WRF-CMAQ twoway coupled model
+               ,mass_h2o_j=grid%mass_h2o_j            &    ! WRF-CMAQ twoway coupled model
+               ,mass_h2o_k=grid%mass_h2o_k            &    ! WRF-CMAQ twoway coupled model
+               ,dgn_i=grid%dgn_i                      &    ! WRF-CMAQ twoway coupled model
+               ,dgn_j=grid%dgn_j                      &    ! WRF-CMAQ twoway coupled model
+               ,dgn_k=grid%dgn_k                      &    ! WRF-CMAQ twoway coupled model
+               ,sig_i=grid%sig_i                      &    ! WRF-CMAQ twoway coupled model
+               ,sig_j=grid%sig_j                      &    ! WRF-CMAQ twoway coupled model
+               ,sig_k=grid%sig_k                      &    ! WRF-CMAQ twoway coupled model
+               ,sw_gtauxar_01=grid%sw_gtauxar_01      &    ! WRF-CMAQ twoway coupled model
+               ,sw_gtauxar_02=grid%sw_gtauxar_02      &    ! WRF-CMAQ twoway coupled model
+               ,sw_gtauxar_03=grid%sw_gtauxar_03      &    ! WRF-CMAQ twoway coupled model
+               ,sw_gtauxar_04=grid%sw_gtauxar_04      &    ! WRF-CMAQ twoway coupled model
+               ,sw_gtauxar_05=grid%sw_gtauxar_05      &    ! WRF-CMAQ twoway coupled model
+               ,sw_ttauxar_01=grid%sw_ttauxar_01      &    ! WRF-CMAQ twoway coupled model
+               ,sw_ttauxar_02=grid%sw_ttauxar_02      &    ! WRF-CMAQ twoway coupled model
+               ,sw_ttauxar_03=grid%sw_ttauxar_03      &    ! WRF-CMAQ twoway coupled model
+               ,sw_ttauxar_04=grid%sw_ttauxar_04      &    ! WRF-CMAQ twoway coupled model
+               ,sw_ttauxar_05=grid%sw_ttauxar_05      &    ! WRF-CMAQ twoway coupled model
+               ,sw_asy_fac_01=grid%sw_asy_fac_01      &    ! WRF-CMAQ twoway coupled model
+               ,sw_asy_fac_02=grid%sw_asy_fac_02      &    ! WRF-CMAQ twoway coupled model
+               ,sw_asy_fac_03=grid%sw_asy_fac_03      &    ! WRF-CMAQ twoway coupled model
+               ,sw_asy_fac_04=grid%sw_asy_fac_04      &    ! WRF-CMAQ twoway coupled model
+               ,sw_asy_fac_05=grid%sw_asy_fac_05      &    ! WRF-CMAQ twoway coupled model
+               ,sw_ssa_01=grid%sw_ssa_01              &    ! WRF-CMAQ twoway coupled model
+               ,sw_ssa_02=grid%sw_ssa_02              &    ! WRF-CMAQ twoway coupled model
+               ,sw_ssa_03=grid%sw_ssa_03              &    ! WRF-CMAQ twoway coupled model
+               ,sw_ssa_04=grid%sw_ssa_04              &    ! WRF-CMAQ twoway coupled model
+               ,sw_ssa_05=grid%sw_ssa_05              &    ! WRF-CMAQ twoway coupled model
+               ,lw_gtauxar_01=grid%lw_gtauxar_01      &    ! WRF-CMAQ twoway coupled model
+               ,lw_gtauxar_02=grid%lw_gtauxar_02      &    ! WRF-CMAQ twoway coupled model
+               ,lw_gtauxar_03=grid%lw_gtauxar_03      &    ! WRF-CMAQ twoway coupled model
+               ,lw_gtauxar_04=grid%lw_gtauxar_04      &    ! WRF-CMAQ twoway coupled model
+               ,lw_gtauxar_05=grid%lw_gtauxar_05      &    ! WRF-CMAQ twoway coupled model
+               ,lw_ttauxar_01=grid%lw_ttauxar_01      &    ! WRF-CMAQ twoway coupled model
+               ,lw_ttauxar_02=grid%lw_ttauxar_02      &    ! WRF-CMAQ twoway coupled model
+               ,lw_ttauxar_03=grid%lw_ttauxar_03      &    ! WRF-CMAQ twoway coupled model
+               ,lw_ttauxar_04=grid%lw_ttauxar_04      &    ! WRF-CMAQ twoway coupled model
+               ,lw_ttauxar_05=grid%lw_ttauxar_05      &    ! WRF-CMAQ twoway coupled model
+               ,feedback_is_ready=feedback_is_ready   &    ! WRF-CMAQ twoway coupled model
+               ,ozone=grid%ozone                      &    ! WRF-CMAQ twoway coupled model
+               ,sw_zbbcddir=grid%sw_zbbcddir          &    ! WRF-CMAQ twoway coupled model
+               ,sw_dirdflux=grid%sw_dirdflux          &    ! WRF-CMAQ twoway coupled model
+               ,sw_difdflux=grid%sw_difdflux          &    ! WRF-CMAQ twoway coupled model
+                                                                                                        )
 
 BENCH_END(rad_driver_tim)
 

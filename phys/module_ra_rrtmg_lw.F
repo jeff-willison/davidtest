@@ -1,3 +1,6 @@
+! FSB this version has been modified to use the aerosols from CMAQ
+! FSB this version contains teh latest (01/24/2012) aerosol codes.
+
 !MODULE module_ra_rrtmg_lw
 
       module parkind
@@ -11353,7 +11356,9 @@ CONTAINS
                        ids,ide, jds,jde, kds,kde,                 & 
                        ims,ime, jms,jme, kms,kme,                 &
                        its,ite, jts,jte, kts,kte,                 &
-                       lwupflx, lwupflxc, lwdnflx, lwdnflxc       &
+                       lwupflx, lwupflxc, lwdnflx, lwdnflxc,      &
+                       gtauxar_01, gtauxar_02, gtauxar_03,        & ! WRF-CMAQ twoway coupled model
+                       gtauxar_04, gtauxar_05                     & ! WRF-CMAQ twoway coupled model
                                                                   )
 !------------------------------------------------------------------
    IMPLICIT NONE
@@ -11444,6 +11449,14 @@ CONTAINS
    REAL, DIMENSION( ims:ime, kms:kme+2, jms:jme ),                &
          OPTIONAL, INTENT(OUT) ::                                 &
                                LWUPFLX,LWUPFLXC,LWDNFLX,LWDNFLXC
+
+! =s= WRF-CMAQ twoway coupled model
+   real, dimension(ims:ime, kms:kme, jms:jme), intent(out) :: gtauxar_01,   &
+                                                              gtauxar_02,   &
+                                                              gtauxar_03,   &
+                                                              gtauxar_04,   &
+                                                              gtauxar_05
+! =e= WRF-CMAQ twoway coupled model
 
 !  LOCAL VARS
  
@@ -12249,6 +12262,1076 @@ CONTAINS
 
    END SUBROUTINE RRTMG_LWRAD
 
+! =s= WRF-CMAQ twoway coupled model
+
+!-------------------------------------------------------------------
+ 
+   SUBROUTINE RRTMG_LWRAD_twoway(                                        &
+                       rthratenlw,                                &
+                       lwupt, lwuptc, lwdnt, lwdntc,              &
+                       lwupb, lwupbc, lwdnb, lwdnbc,              &
+!                      lwupflx, lwupflxc, lwdnflx, lwdnflxc,      &
+                       glw, olr, lwcf, emiss,                     &
+                       p8w, p3d, pi3d,                            &
+                       dz8w, tsk, t3d, t8w, rho3d, r, g,          &
+                       icloud, warm_rain, cldfra3d,               &
+                       f_ice_phy, f_rain_phy,                     &
+                       xland, xice, snow,                         &
+                       qv3d, qc3d, qr3d,                          &
+                       qi3d, qs3d, qg3d,                          &
+                       f_qv, f_qc, f_qr, f_qi, f_qs, f_qg,        &
+                       tauaerlw1,tauaerlw2,tauaerlw3,tauaerlw4,   & ! czhao 
+                       tauaerlw5,tauaerlw6,tauaerlw7,tauaerlw8,   & ! czhao 
+                       tauaerlw9,tauaerlw10,tauaerlw11,tauaerlw12,   & ! czhao 
+                       tauaerlw13,tauaerlw14,tauaerlw15,tauaerlw16,   & ! czhao 
+                       aer_ra_feedback,                           & !czhao
+!jdfcz                 progn,prescribe,                           & !czhao
+                       progn,                                     & !czhao
+                       qndrop3d,f_qndrop,                         & !czhao
+                       ids,ide, jds,jde, kds,kde,                 & 
+                       ims,ime, jms,jme, kms,kme,                 &
+                       its,ite, jts,jte, kts,kte,                 &
+                       lwupflx, lwupflxc, lwdnflx, lwdnflxc,      &
+                       z,feedback_is_ready, ozone,                &
+! ** FSB Add aerosol input ffrom CMAQ
+                       nmode,                                     & ! WRF-CMAQ twoway coupled model
+                       mass_ws_i, mass_ws_j, mass_ws_k,           & ! WRF-CMAQ twoway coupled model
+                       mass_in_i, mass_in_j, mass_in_k,           & ! WRF-CMAQ twoway coupled model
+                       mass_ec_i, mass_ec_j, mass_ec_k,           & ! WRF-CMAQ twoway coupled model
+                       mass_ss_i, mass_ss_j, mass_ss_k,           & ! WRF-CMAQ twoway coupled model
+                       mass_h2o_i, mass_h2o_j, mass_h2o_k,        & ! WRF-CMAQ twoway coupled model
+                       dgn_i, dgn_j, dgn_k,                       & ! WRF-CMAQ twoway coupled model
+                       sig_i, sig_j, sig_k,                       & ! WRF-CMAQ twoway coupled model
+                       gtauxar_01, gtauxar_02, gtauxar_03,        & ! WRF-CMAQ twoway coupled model
+                       gtauxar_04, gtauxar_05                     & ! WRF-CMAQ twoway coupled model
+                                                                  )
+!------------------------------------------------------------------
+
+use parkind ,only : im => kind_im
+
+   IMPLICIT NONE
+!------------------------------------------------------------------
+   LOGICAL, INTENT(IN )      ::        warm_rain
+!
+   INTEGER, INTENT(IN )      ::        ids,ide, jds,jde, kds,kde, &
+                                       ims,ime, jms,jme, kms,kme, &
+                                       its,ite, jts,jte, kts,kte
+
+   INTEGER, INTENT(IN )      ::        ICLOUD
+!
+   REAL, DIMENSION( ims:ime, kms:kme, jms:jme )                 , &
+         INTENT(IN   ) ::                                   dz8w, &
+                                                             t3d, &
+                                                             t8w, &
+                                                             p8w, &
+                                                             p3d, &
+                                                            pi3d, &
+                                                           rho3d
+
+   REAL, DIMENSION( ims:ime, kms:kme, jms:jme )                 , &
+         INTENT(INOUT)  ::                            RTHRATENLW
+
+   REAL, DIMENSION( ims:ime, jms:jme )                          , &
+         INTENT(INOUT)  ::                                   GLW, &
+                                                             OLR, &
+                                                            LWCF
+
+   REAL, DIMENSION( ims:ime, jms:jme )                          , &
+         INTENT(IN   )  ::                                 EMISS, &
+                                                             TSK
+
+   REAL, INTENT(IN  )   ::                                   R,G
+
+   REAL, DIMENSION( ims:ime, jms:jme )                          , &
+         INTENT(IN   )  ::                                 XLAND, &
+                                                            XICE, &
+                                                            SNOW
+!
+! Optional
+!
+   REAL, DIMENSION( ims:ime, kms:kme, jms:jme )                 , &
+         OPTIONAL                                               , &
+         INTENT(IN   ) ::                                         &
+                                                        CLDFRA3D, &
+                                                            QV3D, &
+                                                            QC3D, &
+                                                            QR3D, &
+                                                            QI3D, &
+                                                            QS3D, &
+                                                            QG3D, &
+                                                        QNDROP3D
+   real pi,third,relconst,lwpmin,rhoh2o
+
+   REAL, DIMENSION( ims:ime, kms:kme, jms:jme )                 , &
+         OPTIONAL                                               , &
+         INTENT(IN   ) ::                                         &
+                                                       F_ICE_PHY, &
+                                                      F_RAIN_PHY
+
+   LOGICAL, OPTIONAL, INTENT(IN)   ::                             &
+                                   F_QV,F_QC,F_QR,F_QI,F_QS,F_QG,F_QNDROP
+! Optional
+   REAL, DIMENSION( ims:ime, kms:kme, jms:jme ), OPTIONAL ,       &
+         INTENT(IN    ) :: tauaerlw1,tauaerlw2,tauaerlw3,tauaerlw4, & ! czhao 
+                           tauaerlw5,tauaerlw6,tauaerlw7,tauaerlw8, & ! czhao 
+                           tauaerlw9,tauaerlw10,tauaerlw11,tauaerlw12, & ! czhao 
+                           tauaerlw13,tauaerlw14,tauaerlw15,tauaerlw16
+
+   INTEGER,    INTENT(IN  ), OPTIONAL   ::       aer_ra_feedback
+!jdfcz   INTEGER,    INTENT(IN  ), OPTIONAL   ::       progn,prescribe
+   INTEGER,    INTENT(IN  ), OPTIONAL   ::       progn
+
+      real, parameter :: thresh=1.e-9
+      real slope
+      character(len=200) :: msg
+
+
+! Top of atmosphere and surface longwave fluxes (W m-2)
+   REAL, DIMENSION( ims:ime, jms:jme ),                           &
+         OPTIONAL, INTENT(INOUT) ::                               &
+                                       LWUPT,LWUPTC,LWDNT,LWDNTC, &
+                                       LWUPB,LWUPBC,LWDNB,LWDNBC
+
+! Layer longwave fluxes (including extra layer above model top)
+! Vertical ordering is from bottom to top (W m-2)
+   REAL, DIMENSION( ims:ime, kms:kme+2, jms:jme ),                &
+         OPTIONAL, INTENT(OUT) ::                                 &
+                               LWUPFLX,LWUPFLXC,LWDNFLX,LWDNFLXC
+
+   REAL, DIMENSION( ims:ime, kms:kme, jms:jme )                 , &
+         INTENT(IN)  ::                               z,ozone
+
+   LOGICAL, INTENT(IN) :: feedback_is_ready
+
+! =s= WRF-CMAQ twoway coupled model
+! ** FSB items needed for new aerosol code from CMAQ
+   integer, intent(in)  ::  nmode  ! number of log-normal modes
+
+   real, dimension(ims:ime, kms:kme, jms:jme), intent(in) :: &
+           mass_ws_i, mass_ws_j, mass_ws_k,                  &
+           mass_in_i, mass_in_j, mass_in_k,                  &
+           mass_ec_i, mass_ec_j, mass_ec_k,                  &
+           mass_ss_i, mass_ss_j, mass_ss_k,                  &
+           mass_h2o_i, mass_h2o_j, mass_h2o_k,               &
+           dgn_i, dgn_j, dgn_k,                              &
+           sig_i, sig_j, sig_k
+
+   real, dimension(ims:ime, kms:kme, jms:jme), intent(out) :: gtauxar_01,   &
+                                                              gtauxar_02,   &
+                                                              gtauxar_03,   &
+                                                              gtauxar_04,   &
+                                                              gtauxar_05
+! =e= WRF-CMAQ twoway coupled model
+
+! the following mass cocentrations are in [ ug/m**3]
+! mass_ws_*  - water soluble species
+! mass_in_*  _ isoluble species
+! mass_ec_*  - elemental carbon
+! mass_h2o_* - aerosol water
+! mass_ss_*  - sea salt
+! dgn_*      - geometric mean diameter of each mode  [ m ]
+! sig_*      _ geometric standard deviation of each mode
+
+      integer(kind=im), parameter :: nbndsw = 14
+
+!  LOCAL VARS
+ 
+   REAL, DIMENSION( kts:kte+1 ) ::                          Pw1D, &
+                                                            Tw1D
+
+   REAL, DIMENSION( kts:kte ) ::                          TTEN1D, &
+                                                        CLDFRA1D, &
+                                                            DZ1D, &
+                                                             P1D, &
+                                                             T1D, &
+                                                            QV1D, &
+                                                            QC1D, &
+                                                            QR1D, &
+                                                            QI1D, &
+                                                            QS1D, &
+                                                            QG1D, &
+                                                          qndrop1d 
+
+! Added local arrays for RRTMG
+    integer ::                                              ncol, &
+                                                            nlay, &
+                                                            icld, &
+                                                         inflglw, &
+                                                        iceflglw, &
+                                                        liqflglw
+! Dimension with extra layer from model top to TOA
+    real, dimension( 1, kts:nlayers+1 )  ::                 plev, &
+                                                            tlev
+    real, dimension( 1, kts:nlayers )  ::                   play, &
+                                                            tlay, &
+                                                          h2ovmr, &
+                                                           o3vmr, &
+                                                          co2vmr, &
+                                                           o2vmr, &
+                                                          ch4vmr, &
+                                                          n2ovmr, &
+                                                        cfc11vmr, &
+                                                        cfc12vmr, &
+                                                        cfc22vmr, &
+                                                         ccl4vmr
+    real, dimension( kts:nlayers )  ::                     o3mmr
+! For old cloud property specification for rrtm_lw
+    real, dimension( kts:kte )  ::                          clwp, &
+                                                            ciwp, &
+                                                            plwp, &
+                                                            piwp
+! Surface emissivity (for 16 LW spectral bands)
+    real, dimension( 1, nbndlw )  ::                        emis
+! Dimension with extra layer from model top to TOA, 
+! though no clouds are allowed in extra layer
+    real, dimension( 1, kts:nlayers )  ::                 clwpth, &
+                                                          ciwpth, &
+                                                             rel, &
+                                                             rei, &
+                                                         cldfrac, &
+                                                         relqmcl, &
+                                                         reicmcl
+    real, dimension( nbndlw, 1, kts:nlayers )  ::        taucld
+    real, dimension( ngptlw, 1, kts:nlayers )  ::        cldfmcl, &
+                                                         clwpmcl, &
+                                                         ciwpmcl, &
+                                                         taucmcl
+    real, dimension( 1, kts:nlayers, nbndlw )  ::           tauaer
+
+! Output arrays contain extra layer from model top to TOA
+    real, dimension( 1, kts:nlayers+1 )  ::                 uflx, &
+                                                            dflx, &
+                                                           uflxc, &
+                                                           dflxc
+    real, dimension( 1, kts:nlayers )  ::                    hr, &
+                                                             hrc
+
+    real, dimension ( 1 ) ::                                tsfc, &
+                                                              ps
+    real ::                                                   ro, &
+                                                              dz
+
+! Set trace gas volume mixing ratios, 2005 values, IPCC (2007)
+! carbon dioxide (379 ppmv)
+    real :: co2
+    data co2 / 379.e-6 / 
+! methane (1774 ppbv)
+    real :: ch4
+    data ch4 / 1774.e-9 / 
+! nitrous oxide (319 ppbv)
+    real :: n2o
+    data n2o / 319.e-9 / 
+! cfc-11 (251 ppt)
+    real :: cfc11
+    data cfc11 / 0.251e-9 / 
+! cfc-12 (538 ppt)
+    real :: cfc12
+    data cfc12 / 0.538e-9 / 
+! cfc-22 (169 ppt)
+    real :: cfc22
+    data cfc22 / 0.169e-9 / 
+! ccl4 (93 ppt)
+    real :: ccl4
+    data ccl4 / 0.093e-9 / 
+! Set oxygen volume mixing ratio (for o2mmr=0.23143)
+    real :: o2
+    data o2 / 0.209488 /
+
+    integer :: iplon, irng, permuteseed
+    integer :: nb
+
+! For old cloud property specification for rrtm_lw
+! Cloud and precipitation absorption coefficients
+    real :: abcw,abice,abrn,absn
+    data abcw /0.144/
+    data abice /0.0735/
+    data abrn /0.330e-3/
+    data absn /2.34e-3/
+
+! Molecular weights and ratios for converting mmr to vmr units
+!    real :: amd       ! Effective molecular weight of dry air (g/mol)  
+!    real :: amw       ! Molecular weight of water vapor (g/mol)        
+!    real :: amo       ! Molecular weight of ozone (g/mol)              
+!    real :: amo2      ! Molecular weight of oxygen (g/mol)              
+! Atomic weights for conversion from mass to volume mixing ratios                
+!    data amd   /  28.9660   /                                                  
+!    data amw   /  18.0160   /                                                  
+!    data amo   /  47.9998   /                                                  
+!    data amo2  /  31.9999   /
+                                                                                 
+    real :: amdw     ! Molecular weight of dry air / water vapor  
+    real :: amdo     ! Molecular weight of dry air / ozone
+    real :: amdo2    ! Molecular weight of dry air / oxygen
+    data amdw /  1.607793 /                                                    
+    data amdo /  0.603461 /
+    data amdo2 / 0.905190 /
+    
+!!
+    real, dimension( 1, 1:kte-kts+1 )  :: pdel         ! Layer pressure thickness (mb)
+
+    real, dimension(1, 1:kte-kts+1) ::   cicewp, &     ! in-cloud cloud ice water path
+                                         cliqwp, &     ! in-cloud cloud liquid water path
+                                          reliq, &     ! effective drop radius (microns)
+                                          reice        ! ice effective drop size (microns)
+    real :: gliqwp, gicewp, gravmks
+
+!
+!    REAL   ::  TSFC,GLW0,OLR0,EMISS0,FP
+
+    real, dimension (1) :: landfrac, landm, snowh, icefrac
+
+    integer :: pcols, pver
+
+!
+    INTEGER :: i,j,K
+    LOGICAL :: predicate
+
+! Added for top of model adjustment.  Steven Cavallo NCAR/MMM December 2010
+    INTEGER, PARAMETER :: nproflevs = 60 ! Constant, from the table
+    INTEGER :: L, LL, klev               ! Loop indices      
+    REAL, DIMENSION( kts:nlayers+1 ) :: varint
+    REAL :: wght,vark,vark1       
+    REAL :: PPROF(nproflevs), TPROF(nproflevs)            
+    ! Weighted mean pressure and temperature profiles from midlatitude 
+    ! summer (MLS),midlatitude winter (MLW), sub-Arctic 
+    ! winter (SAW),sub-Arctic summer (SAS), and tropical (TROP) 
+    ! standard atmospheres.
+    DATA PPROF   /1000.00,855.47,731.82,626.05,535.57,458.16,     &
+                  391.94,335.29,286.83,245.38,209.91,179.57,      &
+                  153.62,131.41,112.42,96.17,82.27,70.38,         &
+                  60.21,51.51,44.06,37.69,32.25,27.59,            &
+                  23.60,20.19,17.27,14.77,12.64,10.81,            &
+                  9.25,7.91,6.77,5.79,4.95,4.24,                  &
+                  3.63,3.10,2.65,2.27,1.94,1.66,                  &
+                  1.42,1.22,1.04,0.89,0.76,0.65,                  &
+                  0.56,0.48,0.41,0.35,0.30,0.26,                  &
+                  0.22,0.19,0.16,0.14,0.12,0.10/
+    DATA TPROF   /286.96,281.07,275.16,268.11,260.56,253.02,      &
+         	  245.62,238.41,231.57,225.91,221.72,217.79,      &
+		  215.06,212.74,210.25,210.16,210.69,212.14,      &
+		  213.74,215.37,216.82,217.94,219.03,220.18,      &
+		  221.37,222.64,224.16,225.88,227.63,229.51,      &
+		  231.50,233.73,236.18,238.78,241.60,244.44,      &
+		  247.35,250.33,253.32,256.30,259.22,262.12,      &
+		  264.80,266.50,267.59,268.44,268.69,267.76,      &
+		  266.13,263.96,261.54,258.93,256.15,253.23,      &
+		  249.89,246.67,243.48,240.25,236.66,233.86/	
+
+! =s= WRF-CMAQ twoway coupled model
+   logical, save :: check_env = .false., do_lw_cal, wrf_restart
+
+! fsb local variables for setting tauaer, sssaaer, asmaer
+! FSB local variabble for C0AQ aerosols
+   REAL, DIMENSION (nmode) :: INMASS_ws, INMASS_in,                         &
+         INMASS_ec, INMASS_ss,  INMASS_h2o,  INDGN, INSIG
+   REAL  xtauaer, waer, gaer
+   REAL delta_z ! local layer thickness
+
+   real :: absdepth  ! absorption optical depth (for LW case)
+   real :: tauaer_LW(1,nlayers,nbndlw) ! SW case
+
+    real, dimension( 1, kts:kte+1, nbndlw )  ::  ssaaer, asmaer
+!   real, dimension( 1, kts:nlayers+1, nbndsw )  ::  ssaaer, asmaer
+    integer :: modes, stat
+    logical, parameter :: def_false = .false.
+    logical, external :: envyn
+
+!   real*8 :: beg_time, end_time
+!   real*8, save :: tot_exe
+
+!   include 'mpif.h'
+
+!------------------------------------------------------------------
+
+   if (.not. check_env) then
+!     tot_exe = 0.0
+      check_env = .true.
+      wrf_restart = envyn ('RSTFLAG', ' ', def_false, stat)
+      do_lw_cal   = envyn ('DO_LW_CAL', ' ', def_false, stat)
+   end if
+! =e= WRF-CMAQ twoway coupled model
+
+#ifdef WRF_CHEM
+      IF ( aer_ra_feedback == 1) then
+      IF ( .NOT. &
+      ( PRESENT(tauaerlw1) .AND. &
+        PRESENT(tauaerlw2) .AND. &
+        PRESENT(tauaerlw3) .AND. &
+        PRESENT(tauaerlw4) .AND. &
+        PRESENT(tauaerlw5) .AND. &
+        PRESENT(tauaerlw6) .AND. &
+        PRESENT(tauaerlw7) .AND. &
+        PRESENT(tauaerlw8) .AND. &
+        PRESENT(tauaerlw9) .AND. &
+        PRESENT(tauaerlw10) .AND. &
+        PRESENT(tauaerlw11) .AND. &
+        PRESENT(tauaerlw12) .AND. &
+        PRESENT(tauaerlw13) .AND. &
+        PRESENT(tauaerlw14) .AND. &
+        PRESENT(tauaerlw15) .AND. &
+        PRESENT(tauaerlw16) ) ) THEN
+      CALL wrf_error_fatal  &
+      ('Warning: missing fields required for aerosol radiation' )
+      ENDIF
+      ENDIF
+#endif
+
+
+!-----CALCULATE LONG WAVE RADIATION
+!                                                              
+! All fields are ordered vertically from bottom to top
+! Pressures are in mb
+
+! latitude loop
+  j_loop: do j = jts,jte
+
+! longitude loop
+     i_loop: do i = its,ite
+
+         do k=kts,kte+1
+            Pw1D(K) = p8w(I,K,J)/100.
+            Tw1D(K) = t8w(I,K,J)
+         enddo
+
+         DO K=kts,kte
+            QV1D(K)=0.
+            QC1D(K)=0.
+            QR1D(K)=0.
+            QI1D(K)=0.
+            QS1D(K)=0.
+            CLDFRA1D(k)=0.
+         ENDDO
+
+         DO K=kts,kte
+            QV1D(K)=QV3D(I,K,J)
+            QV1D(K)=max(0.,QV1D(K))
+         ENDDO
+
+         DO K=kts,kte
+            TTEN1D(K)=0.
+            T1D(K)=T3D(I,K,J)
+            P1D(K)=P3D(I,K,J)/100.
+            DZ1D(K)=dz8w(I,K,J)
+         ENDDO
+
+! moist variables
+
+         IF (ICLOUD .ne. 0) THEN
+            IF ( PRESENT( CLDFRA3D ) ) THEN
+              DO K=kts,kte
+                 CLDFRA1D(k)=CLDFRA3D(I,K,J)
+              ENDDO
+            ENDIF
+
+            IF (PRESENT(F_QC) .AND. PRESENT(QC3D)) THEN
+              IF ( F_QC) THEN
+                 DO K=kts,kte
+                    QC1D(K)=QC3D(I,K,J)
+                    QC1D(K)=max(0.,QC1D(K))
+                 ENDDO
+              ENDIF
+            ENDIF
+
+            IF (PRESENT(F_QR) .AND. PRESENT(QR3D)) THEN
+              IF ( F_QR) THEN
+                 DO K=kts,kte
+                    QR1D(K)=QR3D(I,K,J)
+                    QR1D(K)=max(0.,QR1D(K))
+                 ENDDO
+              ENDIF
+            ENDIF
+
+            IF ( PRESENT(F_QNDROP).AND.PRESENT(QNDROP3D)) THEN
+             IF (F_QNDROP) THEN
+              DO K=kts,kte
+               qndrop1d(K)=qndrop3d(I,K,J)
+              ENDDO
+             ENDIF
+            ENDIF
+
+! This logic is tortured because cannot test F_QI unless
+! it is present, and order of evaluation of expressions
+! is not specified in Fortran
+
+            IF ( PRESENT ( F_QI ) ) THEN
+              predicate = F_QI
+            ELSE
+              predicate = .FALSE.
+            ENDIF
+
+! For MP option 3
+            IF (.NOT. predicate .and. .not. warm_rain) THEN
+               DO K=kts,kte
+                  IF (T1D(K) .lt. 273.15) THEN
+                  QI1D(K)=QC1D(K)
+                  QS1D(K)=QR1D(K)
+                  QC1D(K)=0.
+                  QR1D(K)=0.
+                  ENDIF
+               ENDDO
+            ENDIF
+
+            IF (PRESENT(F_QI) .AND. PRESENT(QI3D)) THEN
+               IF (F_QI) THEN
+                  DO K=kts,kte
+                     QI1D(K)=QI3D(I,K,J)
+                     QI1D(K)=max(0.,QI1D(K))
+                  ENDDO
+               ENDIF
+            ENDIF
+
+            IF (PRESENT(F_QS) .AND. PRESENT(QS3D)) THEN
+               IF (F_QS) THEN
+                  DO K=kts,kte
+                     QS1D(K)=QS3D(I,K,J)
+                     QS1D(K)=max(0.,QS1D(K))
+                  ENDDO
+               ENDIF
+            ENDIF
+
+            IF (PRESENT(F_QG) .AND. PRESENT(QG3D)) THEN
+               IF (F_QG) THEN
+                  DO K=kts,kte
+                     QG1D(K)=QG3D(I,K,J)
+                     QG1D(K)=max(0.,QG1D(K))
+                  ENDDO
+               ENDIF
+            ENDIF
+
+! mji - For MP option 5
+            IF ( PRESENT(F_QI) .and. PRESENT(F_QC) .and. PRESENT(F_QS) .and. PRESENT(F_ICE_PHY) ) THEN
+               IF ( F_QC .and. .not. F_QI .and. F_QS ) THEN
+                  DO K=kts,kte
+                     qi1d(k) = qs3d(i,k,j)
+                     qc1d(k) = qc3d(i,k,j)
+                     qi1d(k) = max(0.,qi1d(k))
+                     qc1d(k) = max(0.,qc1d(k))
+                  ENDDO
+               ENDIF
+            ENDIF
+
+        ENDIF
+
+!         EMISS0=EMISS(I,J)
+!         GLW0=0. 
+!         OLR0=0. 
+!         TSFC=TSK(I,J)
+         DO K=kts,kte
+            QV1D(K)=AMAX1(QV1D(K),1.E-12) 
+         ENDDO
+
+! Set up input for longwave
+         ncol = 1
+! Add extra layer from top of model to top of atmosphere
+!         nlay = (kte - kts + 1) + 1
+! Edited for top of model adjustment (nlayers = kte + 1).  
+! Steven Cavallo, December 2010
+          nlay = nlayers ! Keep these indices the same
+
+
+! Select cloud liquid and ice optics parameterization options
+! For passing in cloud optical properties directly:
+!         icld = 2
+!         inflglw = 0
+!         iceflglw = 0
+!         liqflglw = 0
+! For passing in cloud physical properties; cloud optics parameterized in RRTMG:
+         icld = 2
+         inflglw = 2
+         iceflglw = 3
+         liqflglw = 1
+
+! Layer indexing goes bottom to top here for all fields.
+! Water vapor and ozone are converted from mmr to vmr. 
+! Pressures are in units of mb here. 
+         plev(ncol,1) = pw1d(1)
+         tlev(ncol,1) = tw1d(1)
+         tsfc(ncol) = tsk(i,j)
+         do k = kts, kte
+            play(ncol,k) = p1d(k)
+            plev(ncol,k+1) = pw1d(k+1)
+            pdel(ncol,k) = plev(ncol,k) - plev(ncol,k+1)
+            tlay(ncol,k) = t1d(k)
+            tlev(ncol,k+1) = tw1d(k+1)
+            h2ovmr(ncol,k) = qv1d(k) * amdw
+            co2vmr(ncol,k) = co2
+            o2vmr(ncol,k) = o2
+            ch4vmr(ncol,k) = ch4
+            n2ovmr(ncol,k) = n2o
+            cfc11vmr(ncol,k) = cfc11
+            cfc12vmr(ncol,k) = cfc12
+            cfc22vmr(ncol,k) = cfc22
+            ccl4vmr(ncol,k) = ccl4
+         enddo
+
+! This section is replaced with a new method to deal with model top
+         if ( 1 == 0 ) then
+
+!  Define profile values for extra layer from model top to top of atmosphere. 
+!  The top layer temperature for all gridpoints is set to the top layer-1 
+!  temperature plus a constant (0 K) that represents an isothermal layer    
+!  above ptop.  Top layer interface temperatures are linearly interpolated 
+!  from the layer temperatures.  
+
+         play(ncol,kte+1) = 0.5 * plev(ncol,kte+1)
+         tlay(ncol,kte+1) = tlev(ncol,kte+1) + 0.0
+         plev(ncol,kte+2) = 1.0e-5
+         tlev(ncol,kte+2) = tlev(ncol,kte+1) + 0.0
+         h2ovmr(ncol,kte+1) = h2ovmr(ncol,kte) 
+         co2vmr(ncol,kte+1) = co2vmr(ncol,kte) 
+         o2vmr(ncol,kte+1) = o2vmr(ncol,kte) 
+         ch4vmr(ncol,kte+1) = ch4vmr(ncol,kte) 
+         n2ovmr(ncol,kte+1) = n2ovmr(ncol,kte) 
+         cfc11vmr(ncol,kte+1) = cfc11vmr(ncol,kte) 
+         cfc12vmr(ncol,kte+1) = cfc12vmr(ncol,kte) 
+         cfc22vmr(ncol,kte+1) = cfc22vmr(ncol,kte) 
+         ccl4vmr(ncol,kte+1) = ccl4vmr(ncol,kte) 
+
+         endif
+
+!  Set up values for extra layers to the top of the atmosphere.                       
+!  Temperature is calculated based on an average temperature profile given
+!  here in a table.  The input table data is linearly interpolated to the
+!  column pressure.  Mixing ratios are held constant except for ozone.  
+!  Caution should be used if model top pressure is less than 5 hPa.
+!  Steven Cavallo, NCAR/MMM, December 2010
+       ! Calculate the column pressure buffer levels above the 
+       ! model top       
+       do L=kte+1,nlayers,1
+          plev(ncol,L+1) = plev(ncol,L) - deltap
+          play(ncol,L) = 0.5*(plev(ncol,L) + plev(ncol,L+1))
+       enddo          
+       ! Add zero as top level.  This gets the temperature max at the
+       ! stratopause, reducing the downward flux errors in the top 
+       ! levels.  If zero happened to be the top level already,
+       ! this will add another level with zero, but will not affect
+       ! the radiative transfer calculation.
+       plev(ncol,nlayers+1) = 0.00
+       play(ncol,nlayers) =  0.5*(plev(ncol,nlayers) + plev(ncol,nlayers+1))
+
+       ! Interpolate the table temperatures to column pressure levels    
+       do L=1,nlayers+1,1
+          if ( PPROF(nproflevs) .lt. plev(ncol,L) ) then
+             do LL=2,nproflevs,1       
+                if ( PPROF(LL) .lt. plev(ncol,L) ) then           
+                   klev = LL - 1
+                   exit
+                endif
+             enddo
+          
+          else
+             klev = nproflevs
+          endif  
+  
+          if (klev .ne. nproflevs ) then
+             vark  = TPROF(klev) 
+             vark1 = TPROF(klev+1)
+             wght=(plev(ncol,L)-PPROF(klev) )/( PPROF(klev+1)-PPROF(klev))
+          else
+             vark  = TPROF(klev) 
+             vark1 = TPROF(klev)
+             wght = 0.0
+          endif
+          varint(L) = wght*(vark1-vark)+vark
+
+       enddo                   
+       
+       ! Match the interpolated table temperature profile to WRF column                    
+       do L=kte+1,nlayers+1,1
+          tlev(ncol,L) = varint(L) + (tlev(ncol,kte) - varint(kte))
+          !if ( L .le. nlay ) then
+	  tlay(ncol,L-1) = 0.5*(tlev(ncol,L) + tlev(ncol,L-1))  
+	  !endif
+       enddo 
+
+       ! Now the chemical species (except for ozone)
+       do L=kte+1,nlayers,1
+          h2ovmr(ncol,L) = h2ovmr(ncol,kte) 
+          co2vmr(ncol,L) = co2vmr(ncol,kte) 
+          o2vmr(ncol,L) = o2vmr(ncol,kte) 
+          ch4vmr(ncol,L) = ch4vmr(ncol,kte) 
+          n2ovmr(ncol,L) = n2ovmr(ncol,kte) 
+          cfc11vmr(ncol,L) = cfc11vmr(ncol,kte) 
+          cfc12vmr(ncol,L) = cfc12vmr(ncol,kte) 
+          cfc22vmr(ncol,L) = cfc22vmr(ncol,kte) 
+          ccl4vmr(ncol,L) = ccl4vmr(ncol,kte) 
+       enddo	 
+! End top of model buffer 
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!	
+! Get ozone profile including amount in extra layer above model top.
+! Steven Cavallo: Must pass nlay-1 into subroutine to get nlayers 
+! dimension for o3mmr
+         call inirad (o3mmr,plev,kts,nlay-1)
+
+! Steven Cavallo: Changed to nlayers from kte+1
+
+         if ( do_lw_cal .and. (feedback_is_ready .or. wrf_restart) ) then
+            o3vmr(ncol,kte+1) = o3mmr(kte+1) * amdo
+            do k = kts, kte
+!              if (z(i,k,j) .le. 3000.0) then
+!                 o3vmr(ncol,k) = 1.0e-6 * ozone(i,k,j)    ! the 1.0e-6 converts the ppm units.
+!              else
+                  o3vmr(ncol,k) = max(o3vmr(ncol,k), 1.0d-6 * ozone(i,k,j))
+!              end if
+            end do
+         else
+            do k = kts, nlayers
+               o3vmr(ncol,k) = o3mmr(k) * amdo
+            enddo
+         end if
+
+! Set surface emissivity in each RRTMG longwave band
+         do nb = 1, nbndlw
+            emis(ncol, nb) = emiss(i,j)
+         enddo
+
+! Define cloud optical properties for radiation (inflglw = 0)
+! This is approach used with older RRTM_LW;
+! Cloud and precipitation paths in g/m2 
+! qi=0 if no ice phase
+! qs=0 if no ice phase
+         if (inflglw .eq. 0) then
+            do k = kts,kte
+               ro = p1d(k) / (r * t1d(k))*100. 
+               dz = dz1d(k)
+               clwp(k) = ro*qc1d(k)*dz*1000.         
+               ciwp(k) = ro*qi1d(k)*dz*1000.         
+               plwp(k) = (ro*qr1d(k))**0.75*dz*1000. 
+               piwp(k) = (ro*qs1d(k))**0.75*dz*1000. 
+            enddo
+
+! Cloud fraction and cloud optical depth; old approach used with RRTM_LW
+            do k = kts, kte
+               cldfrac(ncol,k) = cldfra1d(k)
+               do nb = 1, nbndlw
+                  taucld(nb,ncol,k) = abcw*clwp(k) + abice*ciwp(k) & 
+                            +abrn*plwp(k) + absn*piwp(k) 
+                  if (taucld(nb,ncol,k) .gt. 0.01) cldfrac(ncol,k) = 1. 
+               enddo
+            enddo
+
+! Zero out cloud physical property arrays; not used when passing optical properties
+! into radiation
+            do k = kts, kte
+               clwpth(ncol,k) = 0.0
+               ciwpth(ncol,k) = 0.0
+               rel(ncol,k) = 10.0
+               rei(ncol,k) = 10.0
+            enddo
+         endif
+
+! Define cloud physical properties for radiation (inflglw = 1 or 2)
+! Cloud fraction
+! Set cloud arrays if passing cloud physical properties into radiation
+         if (inflglw .gt. 0) then 
+            do k = kts, kte
+               cldfrac(ncol,k) = cldfra1d(k)
+            enddo
+
+! Compute cloud water/ice paths and particle sizes for input to radiation (CAM method)
+            pcols = ncol
+            pver = kte - kts + 1
+            gravmks = g
+            landfrac(ncol) = 2.-XLAND(I,J)
+            landm(ncol) = landfrac(ncol)
+            snowh(ncol) = 0.001*SNOW(I,J)
+            icefrac(ncol) = XICE(I,J)
+
+! From module_ra_cam: Convert liquid and ice mixing ratios to water paths;
+! pdel is in mb here; convert back to Pa (*100.)
+! Water paths are in units of g/m2
+! snow added as ice cloud (JD 091022)
+            do k = kts, kte
+               gicewp = (qi1d(k)+qs1d(k)) * pdel(ncol,k)*100.0 / gravmks * 1000.0     ! Grid box ice water path.
+               gliqwp = qc1d(k) * pdel(ncol,k)*100.0 / gravmks * 1000.0     ! Grid box liquid water path.
+               cicewp(ncol,k) = gicewp / max(0.01,cldfrac(ncol,k))               ! In-cloud ice water path.
+               cliqwp(ncol,k) = gliqwp / max(0.01,cldfrac(ncol,k))               ! In-cloud liquid water path.
+            end do
+
+!link the aerosol feedback to cloud  -czhao
+  if( PRESENT( progn ) ) then
+    if (progn == 1) then
+!jdfcz     if(prescribe==0) then
+
+      pi = 4.*atan(1.0)
+      third=1./3.
+      rhoh2o=1.e3
+      relconst=3/(4.*pi*rhoh2o)
+!     minimun liquid water path to calculate rel
+!     corresponds to optical depth of 1.e-3 for radius 4 microns.
+      lwpmin=3.e-5
+      do k = kts, kte
+         reliq(ncol,k) = 10.
+         if( PRESENT( F_QNDROP ) ) then
+            if( F_QNDROP ) then
+              if ( qc1d(k)*pdel(ncol,k).gt.lwpmin.and. &
+                   qndrop1d(k).gt.1000. ) then
+               reliq(ncol,k)=(relconst*qc1d(k)/qndrop1d(k))**third ! effective radius in m
+!           apply scaling from Martin et al., JAS 51, 1830.
+               reliq(ncol,k)=1.1*reliq(ncol,k)
+               reliq(ncol,k)=reliq(ncol,k)*1.e6 ! convert from m to microns
+               reliq(ncol,k)=max(reliq(ncol,k),4.)
+               reliq(ncol,k)=min(reliq(ncol,k),20.)
+              end if
+            end if
+         end if
+      end do
+!jdfcz     else ! prescribe 
+! following Kiehl
+      call relcalc(ncol, pcols, pver, tlay, landfrac, landm, icefrac, reliq, snowh)
+!     write(0,*) 'lw prescribe aerosol',maxval(qndrop3d)
+!jdfcz     endif
+    else  ! progn   
+      call relcalc(ncol, pcols, pver, tlay, landfrac, landm, icefrac, reliq, snowh)
+    endif
+  else   !present(progn) 
+      call relcalc(ncol, pcols, pver, tlay, landfrac, landm, icefrac, reliq, snowh)
+  endif
+
+! following Kristjansson and Mitchell
+            call reicalc(ncol, pcols, pver, tlay, reice)
+
+! Limit upper bound of reice for Fu ice parameterization and convert
+! from effective radius to generalized effective size (*1.0315; Fu, 1996)
+            if (iceflglw .eq. 3) then
+               do k = kts, kte
+                  reice(ncol,k) = reice(ncol,k) * 1.0315
+                  reice(ncol,k) = min(140.0,reice(ncol,k))
+               end do
+            endif
+
+! Set cloud physical property arrays
+            do k = kts, kte
+               clwpth(ncol,k) = cliqwp(ncol,k)
+               ciwpth(ncol,k) = cicewp(ncol,k)
+               rel(ncol,k) = reliq(ncol,k)
+               rei(ncol,k) = reice(ncol,k)
+            enddo
+
+! Zero out cloud optical properties here; not used when passing physical properties
+! to radiation and taucld is calculated in radiation 
+            do k = kts, kte
+               do nb = 1, nbndlw
+                  taucld(nb,ncol,k) = 0.0
+               enddo
+            enddo
+         endif
+
+! No clouds are allowed in the extra layer from model top to TOA
+         ! Steven Cavallo: Edited out for buffer adjustment below
+         if ( 1 == 0 ) then
+
+
+         clwpth(ncol,kte+1) = 0.
+         ciwpth(ncol,kte+1) = 0.
+         rel(ncol,kte+1) = 10.
+         rei(ncol,kte+1) = 10.
+         cldfrac(ncol,kte+1) = 0.
+         do nb = 1, nbndlw
+            taucld(nb,ncol,kte+1) = 0.
+         enddo
+
+         endif
+
+         ! Buffer adjustment. Steven Cavallo December 2010
+	 do k=kte+1,nlayers
+	    clwpth(ncol,k) = 0.
+	    ciwpth(ncol,k) = 0.
+	    rel(ncol,k) = 10.
+            rei(ncol,k) = 10.
+            cldfrac(ncol,k) = 0.
+	    do nb = 1,nbndlw
+               taucld(nb,ncol,k) = 0.
+            enddo
+	 enddo	 
+
+         iplon = 1
+         irng = 0
+         permuteseed = 150
+
+! Sub-column generator for McICA
+         call mcica_subcol_lw(iplon, ncol, nlay, icld, permuteseed, irng, play, &
+                       cldfrac, ciwpth, clwpth, rei, rel, taucld, cldfmcl, &
+                       ciwpmcl, clwpmcl, reicmcl, relqmcl, taucmcl)
+
+!--------------------------------------------------------------------------
+! Aerosol optical depth, single scattering albedo and asymmetry parameter -czhao 03/2010
+!--------------------------------------------------------------------------
+! Aerosol optical depth by layer for each RRTMG longwave band
+! No aerosols in layer above model top (kte+1)
+! Steven Cavallo: Upper bound of loop changed to nlayers from kte+1
+!        do nb = 1, nbndlw
+!           do k = kts, kte+1
+!              tauaer(ncol,k,nb) = 0.
+!           enddo
+!        enddo
+
+! ... Aerosol effects. Added aerosol feedbacks from Chem , 03/2010 -czhao
+!
+
+! Added by FSB for aerosol calculation.
+! Aerosol optical depth
+! by layer for each RRTMG shortwave band
+! No aerosols in top layer above model top (kte+1).
+!     do nb = 1, nbndlw
+!     do k = kts,nlayers
+      do nb = 1, nbndlw ! loop over wavelengths
+         do k = kts, kte ! loop over layers
+            tauaer(ncol,k,nb) = 0.
+            ssaaer(ncol,k,nb) = 1.
+            asmaer(ncol,k,nb) = 0.
+
+            INMASS_ws(1)  = mass_ws_i(i,k,j)
+            INMASS_ws(2)  = mass_ws_j(i,k,j)
+            INMASS_ws(3)  = mass_ws_k(i,k,j)
+            INMASS_in(1)  = mass_in_i(i,k,j)
+            INMASS_in(2)  = mass_in_j(i,k,j)
+            INMASS_in(3)  = mass_in_k(i,k,j)
+            INMASS_ec(1)  = mass_ec_i(i,k,j)
+            INMASS_ec(2)  = mass_ec_j(i,k,j)
+            INMASS_ec(3)  = mass_ec_k(i,k,j)
+            INMASS_ss(1)  = mass_ss_i(i,k,j)
+            INMASS_ss(2)  = mass_ss_j(i,k,j)
+            INMASS_ss(3)  = mass_ss_k(i,k,j)
+            INMASS_h2o(1) = mass_h2o_i(i,k,j)
+            INMASS_h2o(2) = mass_h2o_j(i,k,j)
+            INMASS_h2o(3) = mass_h2o_k(i,k,j)
+            INDGN(1)      = dgn_i(i,k,j)
+            INDGN(2)      = dgn_j(i,k,j)
+            INDGN(3)      = dgn_k(i,k,j)
+            INSIG(1)      = sig_i(i,k,j)
+            INSIG(2)      = sig_j(i,k,j)
+            INSIG(3)      = sig_k(i,k,j)
+
+            delta_z    = dz8w(i,k,j)
+
+!           beg_time = MPI_WTIME()
+            call get_aerosol_Optics_RRTMG_LW( nb,nmode,delta_z,       &
+               INMASS_ws, INMASS_in, INMASS_ec, INMASS_ss,        &
+               INMASS_h2o,  INDGN, INSIG, &
+               xtauaer, absdepth )
+!           end_time = MPI_WTIME()
+!           tot_exe = tot_exe + end_time - beg_time
+
+            tauaer(ncol,k,nb) = xtauaer
+            tauaer_LW(ncol,i,nb) = absdepth
+
+         enddo ! loop over layers
+! No aerosols in top layer above model top (kte+1).
+         tauaer(ncol, kte+1 ,nb) = 0.
+      enddo ! loop over wavelengths
+
+! write (6, '(a19, e18.3)') ' ==d== aero opt lw ', tot_exe
+
+#ifdef WRF_CHEM
+   IF ( AER_RA_FEEDBACK == 1) then
+!     do nb = 1, nbndlw 
+      do k = kts,kte      !wig
+        if(tauaerlw1(i,k,j).gt.thresh .and. tauaerlw16(i,k,j).gt.thresh) then
+          tauaer(ncol,k,1)=tauaerlw1(i,k,j)
+          tauaer(ncol,k,2)=tauaerlw2(i,k,j)
+          tauaer(ncol,k,3)=tauaerlw3(i,k,j)
+          tauaer(ncol,k,4)=tauaerlw4(i,k,j)
+          tauaer(ncol,k,5)=tauaerlw5(i,k,j)
+          tauaer(ncol,k,6)=tauaerlw6(i,k,j)
+          tauaer(ncol,k,7)=tauaerlw7(i,k,j)
+          tauaer(ncol,k,8)=tauaerlw8(i,k,j)
+          tauaer(ncol,k,9)=tauaerlw9(i,k,j)
+          tauaer(ncol,k,10)=tauaerlw10(i,k,j)
+          tauaer(ncol,k,11)=tauaerlw11(i,k,j)
+          tauaer(ncol,k,12)=tauaerlw12(i,k,j)
+          tauaer(ncol,k,13)=tauaerlw13(i,k,j)
+          tauaer(ncol,k,14)=tauaerlw14(i,k,j)
+          tauaer(ncol,k,15)=tauaerlw15(i,k,j)
+          tauaer(ncol,k,16)=tauaerlw16(i,k,j)
+        endif
+      enddo ! k
+!     end do ! nb
+
+!wig beg
+      do nb = 1, nbndlw
+         slope = 0.  !use slope as a sum holder
+         do k = kts,kte
+            slope = slope + tauaer(ncol,k,nb)
+         end do
+         if( slope < 0. ) then
+            write(msg,'("ERROR: Negative total lw optical depth of ",f8.2," at point i,j,nb=",3i5)') slope,i,j,nb
+            call wrf_error_fatal(msg)
+         else if( slope > 5. ) then
+            call wrf_message("-------------------------")
+            write(msg,'("WARNING: Large total lw optical depth of ",f8.2," at point i,j,nb=",3i5)') slope,i,j,nb
+            call wrf_message(msg)
+
+            call wrf_message("Diagnostics 1: k, tauaerlw1, tauaerlw16")
+            do k=kts,kte
+               write(msg,'(i4,2f8.2)') k, tauaerlw1(i,k,j), tauaerlw16(i,k,j)
+               call wrf_message(msg)
+            end do
+            call wrf_message("-------------------------")
+         endif
+      enddo  ! nb
+      endif  ! aer_ra_feedback
+#endif
+
+! Call RRTMG longwave radiation model
+         call rrtmg_lw &
+            (ncol    ,nlay    ,icld    , &
+             play    ,plev    ,tlay    ,tlev    ,tsfc    , & 
+             h2ovmr  ,o3vmr   ,co2vmr  ,ch4vmr  ,n2ovmr  ,o2vmr , &
+             cfc11vmr,cfc12vmr,cfc22vmr,ccl4vmr ,emis    , &
+             inflglw ,iceflglw,liqflglw,cldfmcl , &
+             taucmcl ,ciwpmcl ,clwpmcl ,reicmcl ,relqmcl , &
+             tauaer_LW  , &
+             uflx    ,dflx    ,hr      ,uflxc   ,dflxc,  hrc)
+
+! Output downard surface flux, and outgoing longwave flux and cloud forcing 
+! at the top of atmosphere (W/m2)
+         glw(i,j) = dflx(1,1)
+!         olr(i,j) = uflx(1,kte+2)
+!         lwcf(i,j) = uflxc(1,kte+2) - uflx(1,kte+2)
+! Steven Cavallo: Changed OLR to be valid at the top of atmosphere instead 
+! of top of model.  Dec 2010.
+         olr(i,j) = uflx(1,nlayers+1)
+         lwcf(i,j) = uflxc(1,nlayers+1) - uflx(1,nlayers+1)
+
+         if (present(lwupt)) then 
+! Output up and down toa fluxes for total and clear sky
+            lwupt(i,j)     = uflx(1,kte+2)
+            lwuptc(i,j)    = uflxc(1,kte+2)
+            lwdnt(i,j)     = dflx(1,kte+2)
+            lwdntc(i,j)    = dflxc(1,kte+2)
+! Output up and down surface fluxes for total and clear sky
+            lwupb(i,j)     = uflx(1,1)
+            lwupbc(i,j)    = uflxc(1,1)
+            lwdnb(i,j)     = dflx(1,1)
+            lwdnbc(i,j)    = dflxc(1,1)
+         endif
+
+! Output up and down layer fluxes for total and clear sky.
+! Vertical ordering is from bottom to top in units of W m-2. 
+         if ( present (lwupflx) ) then
+         do k=kts,kte+2
+            lwupflx(i,k,j)  = uflx(1,k)
+            lwupflxc(i,k,j) = uflxc(1,k)
+            lwdnflx(i,k,j)  = dflx(1,k)
+            lwdnflxc(i,k,j) = dflxc(1,k)
+         enddo
+         endif
+
+! Output heating rate tendency; convert heating rate from K/d to K/s
+! Heating rate arrays are ordered vertically from bottom to top here. 
+         do k=kts,kte
+            tten1d(k) = hr(ncol,k)/86400.
+            rthratenlw(i,k,j) = tten1d(k)/pi3d(i,k,j)
+         enddo
+
+!
+      end do i_loop
+   end do j_loop                                           
+
+   END SUBROUTINE RRTMG_LWRAD_twoway
+
+! =e= WRF-CMAQ twoway coupled model
  
 !-------------------------------------------------------------------------
    SUBROUTINE INIRAD (O3PROF,Plev, kts, kte)
@@ -14040,5 +15123,217 @@ IMPLICIT NONE
     return
   end subroutine reicalc
 !------------------------------------------------------------------
+
+! =s= WRF-CMAQ twoway coupled model
+
+!------------------------------------------------------------------
+      subroutine get_aerosol_Optics_RRTMG_LW (nb, nmode, delta_z, INMASS_ws,    &
+                                              INMASS_in, INMASS_ec, INMASS_ss,  &
+                                              INMASS_h2o, INDGN, INSIG,         &
+                                              tauaer, absdepth)                  
+
+! FSB This subroutine calculates aerosol extinction tauaer for the
+!     RRTMG wave bands in the thermal window bands (5,6,7,8, & 9).
+!     tauaer = 0.0 outside that range.
+                  
+! This version is set up to be used with RRTMG_LW <<<<<<<<
+!     wavelenght is calculated internally
+! FSB This routine calculates the aerosol information ( tauaer 
+!     needed to calculate the long wave radiation)  The calling 
+!     program specifies the location ( row, column, layer, 
+!     layer thicknes, and wave number band for the calculation.   
+
+      use rrtmg_aero_optical_util_module
+
+! FSB Input variables:
+      
+      integer, intent(in) :: nb      ! index for wavelength should be 
+                                     ! between 5 and 9. <<< RRTMG_LW
+      integer, intent(in) :: nmode   ! should be 3
+      real,    intent(in) :: delta_z ! layer thickness [m]
+
+! FSB mode types 
+!     nmode = 1 Aitken
+!     nmode = 2 accumulation
+!     nmode = 3 coarse 
+! FSB modal mass concentration by species  [ ug / m**3]  NOTE:  MKS
+      real, intent(in) :: INMASS_ws(nmode)   ! water soluble
+      real, intent(in) :: INMASS_in(nmode)   ! insolugle
+      real, intent(in) :: INMASS_ec(nmode)   ! elemental carbon or soot like
+      real, intent(in) :: INMASS_ss(nmode)   ! sea salt
+      real, intent(in) :: INMASS_h2o(nmode)  ! water
+      
+      real, intent(in) :: INDGN( nmode)      ! geometric mean diameter [ m ] NOTE: MKS      
+      real, intent(in) :: INSIG( nmode)      ! geometric standard deviation
+
+!... output aerosol radiative property  [dimensionless]
+
+      real, intent(out) :: tauaer            ! aerosol extinction optical depth
+      real, intent(out) :: absdepth          ! absorption optical depth
+
+! FSB Internal variables
+
+! FSB total modal mass concentration [ g/ cm **3 ]     
+! FSB in this RRTMG version MMASS is in [ ug / m**3 ]
+!     real ::  MMASS(nmode)
+
+      integer, parameter :: nspint = 5 ! number of bands in the thermal window
+      real ::  NR(nmode), NI(nmode)    ! refractive indices       
+      real ::  DGN(nmode)              ! modal geometric mean diameter [cm]
+      real ::  SIG(nmode)              ! modal geometric standard deviation
+       
+! FSB Modal volumes [ m**3 / cm **3 ]
+      real ::  MVOL_ws(nmode)   ! water soluble
+      real ::  MVOL_in(nmode)   ! insolugle
+      real ::  MVOL_ec(nmode)   ! soot like
+      real ::  MVOL_ss(nmode)   ! sea salt
+      real ::  MVOL_h2o(nmode)  ! water
+
+      real ::  VOL(nmode)       ! total modal volume[ m** 3 / m**3]
+      real ::  MODULUS(nmode)
+      
+      integer :: m  ! loop index
+      integer :: ns ! local band number = nb - 4
+ 
+      real ::     bext                ! extinction coefficient [ 1/m ]
+      real ::     bscat               ! scattering coefficient [ 1/m ]
+      real ::     babs                ! absorbtion coefficient [ 1/m ]
+      real ::     g_bar               ! asymmetry factor    
+!     logical :: do_external(nmode)
+
+!...component densities [ g/ cm**3 ]
+
+       real, parameter :: rhows  = 1.8  ! bulk density of water soluble aerosol
+       real, parameter :: rhoin  = 2.2  ! bulk density forinsoluble aerosol 
+       real, parameter :: rhoec  = 1.7  ! bulk density for soot aerosol
+       real, parameter :: rhoh2o = 1.0  ! bulk density of aerosol water
+       real, parameter :: rhoss  = 2.2  ! bulk density of seasalt
+
+! FSB scale factor for volume calculation
+!            1.0d-12 * [ cm**3 / g] -> [ m** 3 / ug ]
+      real, parameter :: scalefactor = 1.0e-12 
+
+! FSB reciprocal component densities[ m ** 3 / ug ] 
+ 
+       real, parameter :: rhows1  = scalefactor / rhows    ! water soluble aerosol
+       real, parameter :: rhoin1  = scalefactor / rhoin    ! insoluble aerosol 
+       real, parameter :: rhoec1  = scalefactor / rhoec    ! soot aerosol
+       real, parameter :: rhoh2o1 = scalefactor / rhoh2o   ! aerosol water
+       real, parameter :: rhoss1  = scalefactor / rhoss    ! seasalt
+
+! FSB Band numbers and wavelengths for RRTMG_LW   
+      integer, parameter :: Band(nspint) = (/ 5, 6, 7, 8, 9 /)
+      
+      real, parameter :: LAMDA(nspint) = (/ 13.240, 11.20, 9.73, 8.870, 7.830 /)   ! wavelength [ um ]      
+    
+! *** refractive indices
+
+! *** Except as otherwise noted reference values of refractive 
+!     indices  for aerosol particles are from the OPAC Data base. 
+!     Hess, M. P. Koepke, and I. Schult, Optical properties of
+!     aerosols and clouds: The software package OPAC, Bulletan of
+!     the American Meteorological Society, Vol 79, No 5, 
+!     pp 831 - 844, May 1998. 
+!     OPAC is a downloadable data set of optical properties of 
+!     10 aerosol components, 6 water clouds and 3 cirrus clouds 
+!     at UV, visible and IR wavelengths
+!     www.lrz-muenchen.de/~uh234an/www/radaer/opac.htm
+
+
+! FSB water soluble
+      real, parameter :: xnreal_ws(nspint) = (/ 1.57,  1.7,   1.89,  2.233, 1.22  /)
+      real, parameter :: xnimag_ws(nspint) = (/ 0.069, 0.055, 0.128, 0.334, 0.066 /)
+
+! FSB sea salt      
+      real, parameter :: xnreal_ss(nspint) = (/ 1.41,  1.49,  1.56,  1.6,   1.402 /)
+      real, parameter :: xnimag_ss(nspint) = (/ 0.019, 0.014, 0.017, 0.029, 0.012 /)
+ 
+! FSB insoluble      
+      real, parameter :: xnreal_in(nspint) = (/ 1.482, 1.6,   1.739, 1.508, 1.175 /)
+      real, parameter :: xnimag_in(nspint) = (/ 0.096, 0.107, 0.162, 0.117, 0.042 /)
+
+! FSB elemental carbon - soot like      
+      real, parameter :: xnreal_ec(nspint) = (/ 2.2,  2.2,  2.2,  2.2,  2.2 /)
+      real, parameter :: xnimag_ec(nspint) = (/ 0.7,  0.7,  0.7,  0.7,  0.7 /)
+
+! FSB water
+      real, parameter :: xnreal_h2o(nspint) = (/ 1.16,  1.14,  1.232, 1.266, 1.3   /)
+      real, parameter :: xnimag_h2o(nspint) = (/ 0.321, 0.117, 0.047, 0.038, 0.034 /)
+
+ 
+! FSB Begin code ======================================================
+! FSB Check if in Thermal Window, if not return  with tauaer = 0.0 
+       
+      IF ( nb .lt. 5 .or. nb .gt. 9 ) THEN
+       
+         tauaer = 0.0
+         absdepth = 0.0
+
+      ELSE
+      
+! Set local band number
+
+         ns = nb - 4 ! ns = 1,2,3,4,5 
+        
+!        Tot_mass = 0.0
+
+         do m = 1, nmode
+
+! FSB calculate volumes [ m**3 / m**3 ]
+! FSB the reciprocal densities have been scaled to [ m**3 / ug ]      
+
+            MVOL_ws(m)  = rhows1  * INMASS_ws(m)
+            MVOL_in(m)  = rhoin1  * INMASS_in(m)
+            MVOL_ec(m)  = rhoec1  * INMASS_ec(m)
+            MVOL_ss(m)  = rhoss1  * INMASS_ss(m)
+            MVOL_h2o(m) = rhoh2o1 * INMASS_h2o(m)
+     
+! FSB sum to get total modal volumes and total mass
+      
+            VOL(m) = MVOL_ws(m) + MVOL_in(m) + MVOL_ss(m) +           &
+                     MVOL_ec(m) + MVOL_h2o(m)
+       
+!           MMASS(m) = INMASS_ws(m) + INMASS_in(m) + INMASS_ss(m) +   &
+!                      INMASS_ec(m)+ INMASS_h2o(m)     
+        
+!           Tot_mass = Tot_mass + MMASS(m)
+       
+! all internal mixture
+      
+! modal real refractive index
+            nr(m) = (MVOL_ws(m)  * xnreal_ws(ns)  +    &
+                     MVOL_in(m)  * xnreal_in(ns)  +    &
+                     MVOL_ss(m)  * xnreal_ss(ns)  +    &
+                     MVOL_h2o(m) * xnreal_h2o(ns) +    &
+                     MVOL_ec(m)  * xnreal_ec(ns)       &
+                    ) / VOL(m)
+
+! modal imaginary refractive index 
+            ni(m) = (MVOL_ws(m)  * xnimag_ws(ns)  +    &
+                     MVOL_in(m)  * xnimag_in(ns)  +    &
+                     MVOL_ss(m)  * xnimag_ss(ns)  +    &
+                     MVOL_h2o(m) * xnimag_h2o(ns) +    &
+                     MVOL_ec(m)  * xnimag_ec(ns)       &
+                    ) / VOL(m)
+
+! modulus of modal refracive index
+!           MODULUS(m) = sqrt( nr(m) * nr(m) + ni(m) * ni(m) ) 
+
+         end do ! loop over modes 
+
+         CALL aero_optical ( LAMDA(ns), NMODE, NR, NI, VOL,     &
+                             INDGN, INSIG, bext, bscat, g_bar   &
+                           )
+!                          , MODULUS )     ! MODULUS is an optional argument
+     
+         tauaer   = bext * delta_z  ! contributionto aerosol optical depth
+         babs     = bext - bscat
+         absdepth = babs * delta_z
+
+      END IF
+     
+      end subroutine get_aerosol_Optics_RRTMG_LW
+
+! =e= WRF-CMAQ twoway coupled model
 
 END MODULE module_ra_rrtmg_lw

@@ -688,8 +688,7 @@
                       grid%cldfra,                                      &
 #ifdef WRF_CHEM
                       grid%cldfra_old,                                  &
-#endif
-#ifndef WRF_CHEM
+#else
                       cldfra_old,                                  &
 #endif
                       grid%glw,grid%gsw,grid%emiss,grid%embck,            &
